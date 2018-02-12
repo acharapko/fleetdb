@@ -1,0 +1,1 @@
+{"address":{"1.1":"127.0.0.1:1735"},"http_address":{"1.1":"http://localhost:8080"},"quorum":"fgrid","f":0,"leveldb":"~/lvldb/","transport":"chan","codec":"gob","reply_when_commit":false,"adaptive":true,"interval":0,"backoff":0,"thrifty":false,"chan_buffer_size":1024,"buffer_size":1024}
