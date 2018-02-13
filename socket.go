@@ -118,7 +118,6 @@ func (sock *socket) RBroadcast(zone int, msg interface{}) {
 }
 
 func (sock *socket) Broadcast(msg interface{}) {
-	log.Debugf("BROADCASTING\n");
 	hlcTime := HLClock.Now()
 	hdr := MsgHeader{HLCTime:hlcTime}
 	for id := range sock.nodes {

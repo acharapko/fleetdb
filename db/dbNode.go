@@ -433,8 +433,8 @@ func (db *DBNode) handleLeaderChange(m wpaxos2.LeaderChange) {
 
 		p := db.GetPaxos(m.Key)
 
-		p.Lock()
-		defer p.Unlock()
+		p.GetAccessToken()
+		defer p.ReleaseAccessToken()
 
 		p.P1a()
 

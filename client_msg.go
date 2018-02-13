@@ -104,6 +104,7 @@ func NewInProgressTX(TxID TXID, cmds []Command, s []int) *Transaction {
 		Commands: cmds,
 		CmdMeta:cmdMetas,
 	}
+	inprogress.MakeExecChannel(len(cmds))
 	return &inprogress
 }
 
@@ -124,16 +125,25 @@ func (t Transaction) String() string {
 
 // Reply replies to the current request
 func (r *Transaction) Reply(reply TransactionReply) {
-	r.c <- reply
+	if r.c != nil {
+		r.c <- reply
+	}
 }
 
 // Reply replies to the current request
 func (r *Transaction) ReadyToExec(slot int, key Key) {
-	r.execChan <- TxExec{Slotnum:slot, Key:key}
+	if r.execChan != nil {
+		r.execChan <- TxExec{Slotnum: slot, Key: key}
+	}
 }
 
-func (r *Transaction) MakeExecChannel() {
-	r.execChan = make(chan TxExec)
+func (r *Transaction) MakeExecChannel(numkeys int) {
+	//we have a buffered channel in case we are sending to it before the consumer is created
+	r.execChan = make(chan TxExec, numkeys)
+}
+
+func (r *Transaction) CloseExecChannel() {
+	close(r.execChan)
 }
 
 func (r *Transaction) GetExecChannel() chan TxExec {

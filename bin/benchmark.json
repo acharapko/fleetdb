@@ -1,11 +1,11 @@
 {
-    "T": 20,
+    "T": 40,
     "N": 0,
     "K": 200,
     "W": 50,
     "TW": 50,
     "TXS": 3,
-    "S": 200,
+    "S": 4,
     "Concurrency": 5,
     "Distribution": "random",
     "LinearizabilityCheck": false,

@@ -191,15 +191,6 @@ func (n *node) serveTransaction(r *http.Request, w http.ResponseWriter) {
 	var tx Transaction
 	tx.c = make(chan TransactionReply)
 
-
-
-	/*tx.ClientID = ID(r.Header.Get("id"))
-	cid, _ := strconv.Atoi(r.Header.Get("cid"))
-	tx.CommandID = CommandID(cid)
-	tx.Timestamp, _ = strconv.ParseInt(r.Header.Get("timestamp"), 10, 64)
-	*/
-
-
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Errorln("error reading body: ", err)
