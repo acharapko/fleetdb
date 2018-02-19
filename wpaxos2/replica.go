@@ -11,20 +11,19 @@ import (
 
 type Replica struct {
 	fleetdb.Node
-	paxi  	map[string]*Paxos
-	txs		map[fleetdb.TXID] *fleetdb.Transaction //this is the map of all outstanding TX Replica knows of
 
-	txl sync.RWMutex
 	sync.RWMutex
+	paxi  	map[string]*Paxos
+
+	txl 	sync.RWMutex
+	txs		map[fleetdb.TXID] *fleetdb.Transaction //this is the map of all outstanding TX Replica knows of
 }
 
 func NewReplica(config fleetdb.Config) *Replica {
 	r := new(Replica)
 	r.Node = fleetdb.NewNode(config)
 	r.paxi = make(map[string]*Paxos)
-	//r.stats = make(map[string] hitstat)
 	r.txs = make(map[fleetdb.TXID] *fleetdb.Transaction)
-
 	//transaction
 	r.Register(fleetdb.Transaction{}, r.HandleTransaction)
 	//request
@@ -39,6 +38,8 @@ func NewReplica(config fleetdb.Config) *Replica {
 	r.Register(Commit{}, r.handleCommit)
 	r.Register(CommitTX{}, r.handleCommitTX)
 
+
+
 	return r
 }
 
@@ -46,15 +47,14 @@ func (r *Replica) init(key fleetdb.Key) {
 	r.Lock()
 	defer r.Unlock()
 	if _, exists := r.paxi[key.B64()]; !exists {
-		log.Debugf("Init Paxos Replicata for Key %s\n", key)
+		log.Debugf("Init Paxos Replica for Key %s\n", key)
 		r.paxi[key.B64()] = NewPaxos(r, key)
-		//r.stats[key.B64()] = newStat(r.Config().Interval)
 	}
 }
 
 func (r *Replica) GetPaxos(key fleetdb.Key) *Paxos {
-	r.RLock()
-	defer r.RUnlock()
+	r.Lock()
+	defer r.Unlock()
 
 	return r.paxi[key.B64()]
 }

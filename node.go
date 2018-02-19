@@ -200,8 +200,8 @@ func (n *node) serveTransaction(r *http.Request, w http.ResponseWriter) {
 
 	json.Unmarshal(body, &tx)
 	tx.Timestamp = HLClock.Now().ToInt64()
-	tx.TxID = NewTXID(n.ID().Zone(), n.ID().Node(), int(n.txCount))
-	atomic.AddInt32(&n.txCount, 1)
+	txc := atomic.AddInt32(&n.txCount, 1)
+	tx.TxID = NewTXID(n.ID().Zone(), n.ID().Node(), int(txc))
 	log.Debugf("Adding Tx to Message Chan TX %v {body=%v}\n", tx, body)
 	n.MessageChan <- tx
 

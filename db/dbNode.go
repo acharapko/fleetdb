@@ -13,7 +13,7 @@ import (
 
 
 type DBNode struct {
-	wpaxos2.Replica
+	*wpaxos2.Replica
 
 	//data distribution data
 	balanceCount       map[fleetdb.ID] int
@@ -29,6 +29,7 @@ type DBNode struct {
 	stats map[string] hitstat
 	memprofile string
 
+	//TODO: refactor load factor and distance calculation to use channel sync instead?
 	sync.RWMutex
 }
 
@@ -38,7 +39,7 @@ func NewDBNode(config fleetdb.Config) *DBNode {
 	db.loadFactor = make(map[fleetdb.ID]float64)
 	db.pingDistances = make(map[fleetdb.ID]int)
 	db.pingZonesDistances = make(map[int]int)
-	db.Replica = *wpaxos2.NewReplica(config)
+	db.Replica = wpaxos2.NewReplica(config)
 	db.stats = make(map[string] hitstat)
 	//fleetdb utils
 	db.Register(GossipBalance{}, db.handleGossipBalance)
@@ -80,17 +81,20 @@ func (db *DBNode) SetMemProfile(memprofile string) {
 
 func (db *DBNode) startBalanceGossip(config fleetdb.Config) {
 	ticker := time.NewTicker(time.Duration(config.BalGossipInt) * time.Millisecond)
+
 	go func() {
 		for {
 			select {
 				case <- ticker.C:
 					//send gossip message
+					db.RLock()
 					countKeys := len(db.stats)
+					db.RUnlock()
 					db.Broadcast(&GossipBalance{countKeys, db.ID()})
 					db.Lock()
 					db.balanceCount[db.ID()] = countKeys
-					db.computeLoadFactor(db.ID())
 					db.Unlock()
+					db.computeLoadFactor(db.ID())
 
 
 					log.Debugf("Memprofile file: \n", db.memprofile)
@@ -160,10 +164,9 @@ func (db *DBNode) GetReplicationGroupZones(zone int) []int  {
 
 func (db *DBNode) handleGossipBalance(m GossipBalance) {
 	db.Lock()
-	defer db.Unlock()
-
 	log.Debugf("GossipBalance ===[%v]=== @ Replica %s\n", m, m.From)
 	db.balanceCount[m.From] = m.Items
+	db.Unlock()
 	db.computeLoadFactor(m.From)
 }
 
@@ -192,13 +195,14 @@ func (db *DBNode) handleProximityPingResponse(m ProximityPingResponse) {
 	This computes how loaded this nodes is with data compared to other nodes in the system.
  */
 func (db *DBNode) computeLoadFactor(id fleetdb.ID) {
+	db.Lock()
+	defer db.Unlock()
 	var totalCount int
 	for _, v := range db.balanceCount {
 		totalCount += v
 	}
 	db.targetBalance = 1.0 / float64(len(db.balanceCount))
 	db.loadFactor[id] = float64(db.balanceCount[id]) / float64(totalCount)
-
 	log.Infof("Load Factor @ Replica %s: %f (%d items) (target=%f)\n", id, db.loadFactor[id], db.balanceCount[id], db.targetBalance)
 }
 
@@ -239,7 +243,7 @@ type evictionNotice struct {
 }
 
 func (db *DBNode) findEvictKey() *evictionNotice {
-	log.Debugf("Find Evict Keys @ %v, len(stats) = %d \n", db.ID(), len(db.stats))
+	log.Debugf("Find Evict Keys @ %v \n", db.ID())
 
 	//we will do the ugly and evict least accessed key
 	//of course the is flawed param, since the counter for
@@ -311,15 +315,16 @@ func (db *DBNode) findEvictKey() *evictionNotice {
 	return nil
 }
 
-func (db * DBNode) EvictKey() {
+func (db *DBNode) EvictKey() {
 	log.Debugf("Replica %s evicting key\n", db.ID())
 	db.RLock()
 	lf := db.loadFactor[db.ID()]
+	tb := db.targetBalance
 	db.RUnlock()
 	log.Debugf("EvictKey lf= %f \n", lf)
-	//this ugly loop tells how many keys to evict. The bigger disbalance causes more evictions
-	for i := db.targetBalance; i < lf; i += db.Config().OverldThrshld {
-		if lf - db.Config().OverldThrshld > db.targetBalance {
+	//this ugly loop tells how many keys to evict. The bigger misbalance causes more evictions
+	for i := tb; i < lf; i += db.Config().OverldThrshld {
+		if lf - db.Config().OverldThrshld > tb {
 			evictNotice := db.findEvictKey()
 			if evictNotice != nil {
 				log.Debugf("Replica %s evicting key %s to %s \n", db.ID(), string(evictNotice.key), evictNotice.dest)
@@ -361,7 +366,9 @@ func (db *DBNode) HandleRequest(m fleetdb.Request) {
 		if p.IsLeader() || p.Ballot() == 0 {
 			db.initStat(m.Command.Key)
 			db.Replica.HandleRequest(m)
+			db.RLock()
 			to := db.stats[k.B64()].Hit(m.Command.ClientID, m.Timestamp)
+			db.RUnlock()
 			if to != "" {
 				db.processLeaderChange(fleetdb.ID(to), p)
 			}

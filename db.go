@@ -56,7 +56,7 @@ type database struct {
 	lock *sync.RWMutex
 	// data  map[Keys]map[Version]Value
 	leveldb []*leveldb.DB
-	sync.RWMutex
+	//sync.RWMutex
 }
 
 // NewStore get the instance of LevelDB Wrapper
@@ -80,8 +80,8 @@ func (db *database) Execute(c Command) (Value, error) {
 	lvldb := db.leveldb[c.Key.Bucket(len(db.leveldb))]
 	switch c.Operation {
 	case PUT:
-		db.Lock()
-		defer db.Unlock()
+		db.lock.Lock()
+		defer db.lock.Unlock()
 		err := lvldb.Put(c.Key, c.Value, nil)
 		if err != nil {
 			log.Errorln(err)
@@ -89,8 +89,8 @@ func (db *database) Execute(c Command) (Value, error) {
 		}
 		return nil, nil
 	case GET:
-		db.Lock()
-		defer db.Unlock()
+		db.lock.Lock()
+		defer db.lock.Unlock()
 		v, err := lvldb.Get(c.Key, nil)
 		if err != nil {
 			if err.Error() == "leveldb: not found" {
@@ -102,8 +102,8 @@ func (db *database) Execute(c Command) (Value, error) {
 		log.Debugf("Execute GET against LevelDB: %s\n", v)
 		return v, nil
 	case DELETE:
-		db.Lock()
-		defer db.Unlock()
+		db.lock.Lock()
+		defer db.lock.Unlock()
 		err := lvldb.Delete(c.Key, nil)
 		if err != nil {
 			log.Errorln(err)
