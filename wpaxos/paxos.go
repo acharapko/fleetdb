@@ -1,4 +1,4 @@
-package wpaxos2
+package wpaxos
 
 import (
 	"time"
@@ -17,18 +17,15 @@ type entry struct {
 	commit    bool
 	executed  bool
 
-	TxID	  fleetdb.TXID
-	isTxSlot  bool
-	txtime    int64
 	tx        *fleetdb.Transaction
-
 	request   *fleetdb.Request
+
 	quorum    *fleetdb.Quorum
 	timestamp time.Time
 }
 
 func (e entry) String() string {
-	return fmt.Sprintf("Slot Entry {bal=%s, cmd=%v, commit=%v, exec=%v, istxslot =%t, txid=%v, txtime=%d}", e.ballot, e.command, e.commit, e.executed, e.isTxSlot, e.TxID, e.txtime)
+	return fmt.Sprintf("Slot Entry {bal=%s, cmd=%v, commit=%v, exec=%v, tx=%v}", e.ballot, e.command, e.commit, e.executed, e.tx)
 }
 
 // Paxos instance
@@ -200,14 +197,14 @@ func (p *Paxos) P2aFillSlot(cmd fleetdb.Command, req *fleetdb.Request, tx *fleet
 		quorum:    fleetdb.NewQuorum(),
 		timestamp: time.Now(),
 	}
-	if req != nil {
+	/*if req != nil {
 		e.txtime = req.Timestamp
 	}
 	if tx != nil {
 		e.TxID = tx.TxID
 		e.isTxSlot = true
 		e.txtime = tx.Timestamp
-	}
+	}*/
 	p.log[p.slot] = e
 	p.log[p.slot].quorum.ACK(p.ID())
 }
@@ -219,17 +216,19 @@ func (p *Paxos) HandleP1a(m Prepare) {
 
 	l := make(map[int]CommandBallot)
 	for s := p.execute; s <= p.slot; s++ {
-		/*if p.log[s] != nil && !p.log[s].commit && p.log[s].isTxSlot {
-			//uncommitted TX slot, we treat as NOOP at this point
-			p.log[s].command.Operation = fleetdb.NOOP
-			p.log[s].txwait = false
-		}*/
+
 		//TODO: HandleP1a needs to change when not doing full replication
 		//We should send all committed but not exec TX slots and all non-committed and non-executed regular slots.
-		if p.log[s] == nil || p.log[s].commit {
+		if p.log[s] == nil {
 			continue
 		}
-		l[s] = CommandBallot{p.log[s].command, p.log[s].ballot}
+
+		l[s] = CommandBallot{
+			Command:	p.log[s].command,
+			Ballot:		p.log[s].ballot,
+			Executed: 	p.log[s].executed,
+			Committed:	p.log[s].commit,
+			Tx:			*p.log[s].tx}
 	}
 
 	lpf := false
@@ -261,18 +260,31 @@ func (p *Paxos) HandleP1a(m Prepare) {
 func (p *Paxos) update(scb map[int]CommandBallot) {
 	for s, cb := range scb {
 		p.slot = fleetdb.Max(p.slot, s)
+
 		if e, exists := p.log[s]; exists {
 			if !e.commit && cb.Ballot > e.ballot {
 				e.ballot = cb.Ballot
 				e.command = cb.Command
+				e.commit = cb.Committed
+				e.tx = &cb.Tx
+				p.forceExec(cb, s)
 			}
 		} else {
 			p.log[s] = &entry{
 				ballot:  cb.Ballot,
 				command: cb.Command,
-				commit:  false,
+				commit:  cb.Committed,
+				tx:		 &cb.Tx,
 			}
+			p.forceExec(cb, s)
 		}
+	}
+}
+
+func (p* Paxos) forceExec(cb CommandBallot, slot int) {
+	if cb.Executed && p.execute < slot {
+		p.execute = slot
+		p.Exec()
 	}
 }
 
@@ -345,7 +357,7 @@ func (p *Paxos) HandleP2a(m Accept) {
 	defer p.ReleaseAccessToken()
 	log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, p.ID())
 
-	p.ProcessP2a(m, false)
+	p.ProcessP2a(m, nil)
 
 	p.Send(m.Ballot.ID(), &Accepted{
 		Key:	p.Key,
@@ -355,7 +367,7 @@ func (p *Paxos) HandleP2a(m Accept) {
 	})
 }
 
-func (p *Paxos) ProcessP2a(m Accept, txSlot bool) {
+func (p *Paxos) ProcessP2a(m Accept, tx *fleetdb.Transaction) {
 	if m.Ballot >= p.ballot {
 		p.ballot = m.Ballot
 		p.Active = false
@@ -372,14 +384,14 @@ func (p *Paxos) ProcessP2a(m Accept, txSlot bool) {
 				}
 				e.command = m.Command
 				e.ballot = m.Ballot
-				e.txtime = m.txtime
+				e.tx = tx
+
 			}
 		} else {
 			p.log[m.Slot] = &entry{
 				ballot:  	m.Ballot,
 				command: 	m.Command,
-				isTxSlot:	txSlot,
-				txtime:     m.txtime,
+				tx:			tx,
 				commit:  	false,
 			}
 		}
@@ -509,7 +521,7 @@ func (p *Paxos) Exec() {
 		if e.command.Operation == fleetdb.TX_LEASE  {
 			//p.Lock()
 			txid := binary.LittleEndian.Uint64(e.command.Value)
-			p.setLease(e.txtime, fleetdb.TXID(txid))
+			p.setLease(e.tx.Timestamp, fleetdb.TXID(txid))
 			if e.request != nil {
 				e.request.Reply(fleetdb.Reply{
 					Command: e.command,
@@ -521,7 +533,7 @@ func (p *Paxos) Exec() {
 			p.execute++
 			//p.Unlock()
 		} else {
-			if e.TxID == 0 || e.command.Operation == fleetdb.NOOP {
+			if e.tx == nil || e.command.Operation == fleetdb.NOOP {
 				value, err := p.Execute(e.command)
 				if err == nil {
 					if e.request != nil {
@@ -553,7 +565,7 @@ func (p *Paxos) Exec() {
 				p.cleanLog(p.execute)
 				p.execute++
 			} else {
-				p.GetTX(e.TxID).ReadyToExec(p.execute, e.command.Key)
+				p.GetTX(e.tx.TxID).ReadyToExec(p.execute, e.command.Key)
 				break // get out the loop and finish this Exec cycle
 			}
 		}
@@ -571,7 +583,9 @@ func (p* Paxos) ExecTXCmd() fleetdb.Value {
 			//Clean up the log after execute
 			p.cleanLog(p.execute)
 			p.execute++
-			p.resetLease(e.TxID)
+			if e.tx != nil { //I think we should always have tx here, ut just in case
+				p.resetLease(e.tx.TxID)
+			}
 			return value
 		} else {
 			log.Errorln(err)

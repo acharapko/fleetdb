@@ -1,4 +1,4 @@
-package wpaxos2
+package wpaxos
 
 import (
 	"encoding/gob"
@@ -35,8 +35,11 @@ func (p Prepare) String() string {
 }
 
 type CommandBallot struct {
-	Command fleetdb.Command
-	Ballot  fleetdb.Ballot
+	Command 	fleetdb.Command
+	Ballot  	fleetdb.Ballot
+	Executed	bool
+	Committed	bool
+	Tx			fleetdb.Transaction
 }
 
 func (cb CommandBallot) String() string {
@@ -49,7 +52,7 @@ type Promise struct {
 	Ballot fleetdb.Ballot
 	ID     fleetdb.ID               // from node id
 	LPF	   bool					//Lease Promise Failure
-	Log    map[int]CommandBallot // uncommitted logs
+	Log    map[int]CommandBallot // log since last execute (includes last execute)
 }
 
 func (p Promise) String() string {

@@ -89,7 +89,7 @@ func NewNode(config Config) Node {
 	F = config.F
 	QuorumType = config.Quorum
 	HLClock = hlc.NewHLC(time.Now().Unix())
-
+	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = config.MaxIdleCnx
 	return node
 }
 

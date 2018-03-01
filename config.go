@@ -41,6 +41,7 @@ type Config struct {
 	OverldThrshld   float64       `json:"overload_threshold"` //how many percent over even distribution is considered to be overlaod
 	TX_lease	    int       	  `json:"tx_lease_duration"` //how long is tx lease (in ms) preventing other nodes from stealing
 	handoverN	    int       	  `json:"handoverN"` //how many request we need before making polite handover decision
+	MaxIdleCnx	    int       	  `json:"max_idle_connections"` //http max idle connection per host
 
 
 	// for future implementation
@@ -67,6 +68,7 @@ func MakeDefaultConfig() Config {
 	config.TX_lease = 1000
 	config.RS = 1
 	config.handoverN = 5
+	config.MaxIdleCnx = 100
 	return *config
 }
 

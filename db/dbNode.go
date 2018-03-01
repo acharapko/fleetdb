@@ -3,7 +3,7 @@ package db
 import (
 	"time"
 	"github.com/acharapko/fleetdb"
-	"github.com/acharapko/fleetdb/wpaxos2"
+	"github.com/acharapko/fleetdb/wpaxos"
 	"github.com/acharapko/fleetdb/log"
 	"sort"
 	"sync"
@@ -13,7 +13,7 @@ import (
 
 
 type DBNode struct {
-	*wpaxos2.Replica
+	*wpaxos.Replica
 
 	//data distribution data
 	balanceCount       map[fleetdb.ID] int
@@ -39,7 +39,7 @@ func NewDBNode(config fleetdb.Config) *DBNode {
 	db.loadFactor = make(map[fleetdb.ID]float64)
 	db.pingDistances = make(map[fleetdb.ID]int)
 	db.pingZonesDistances = make(map[int]int)
-	db.Replica = wpaxos2.NewReplica(config)
+	db.Replica = wpaxos.NewReplica(config)
 	db.stats = make(map[string] hitstat)
 	//fleetdb utils
 	db.Register(GossipBalance{}, db.handleGossipBalance)
@@ -47,8 +47,8 @@ func NewDBNode(config fleetdb.Config) *DBNode {
 	db.Register(ProximityPingResponse{}, db.handleProximityPingResponse)
 	db.Register(fleetdb.Request{}, db.HandleRequest)
 	db.Register(fleetdb.Transaction{}, db.handleTransaction)
-	db.Register(wpaxos2.LeaderChange{}, db.handleLeaderChange)
-	db.Register(wpaxos2.Prepare{}, db.handlePrepareDBNode)
+	db.Register(wpaxos.LeaderChange{}, db.handleLeaderChange)
+	db.Register(wpaxos.Prepare{}, db.handlePrepareDBNode)
 	db.startBalanceGossip(config)
 	db.startProximityGossip(config)
 	//send gossip message
@@ -207,7 +207,7 @@ func (db *DBNode) computeLoadFactor(id fleetdb.ID) {
 }
 
 
-func (db *DBNode) processLeaderChange(to fleetdb.ID, p *wpaxos2.Paxos) {
+func (db *DBNode) processLeaderChange(to fleetdb.ID, p *wpaxos.Paxos) {
 	db.RLock()
 	loadFctr := db.loadFactor[to]
 	db.RUnlock()
@@ -228,7 +228,7 @@ func (db *DBNode) processLeaderChange(to fleetdb.ID, p *wpaxos2.Paxos) {
 			}
 		}
 
-		db.Send(to, &wpaxos2.LeaderChange{
+		db.Send(to, &wpaxos.LeaderChange{
 			Key:    p.Key,
 			To:     to,
 			From:   db.ID(),
@@ -330,7 +330,7 @@ func (db *DBNode) EvictKey() {
 				log.Debugf("Replica %s evicting key %s to %s \n", db.ID(), string(evictNotice.key), evictNotice.dest)
 				p := db.GetPaxos(evictNotice.key)
 
-				db.Send(evictNotice.dest, &wpaxos2.LeaderChange{
+				db.Send(evictNotice.dest, &wpaxos.LeaderChange{
 					Key:    evictNotice.key,
 					To:     evictNotice.dest,
 					From:   db.ID(),
@@ -345,7 +345,7 @@ func (db *DBNode) EvictKey() {
 	Handles
  */
 
-func (db *DBNode) handlePrepareDBNode(m wpaxos2.Prepare) {
+func (db *DBNode) handlePrepareDBNode(m wpaxos.Prepare) {
 	//log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, r.ID())
 	db.Replica.HandlePrepare(m)
 	p := db.GetPaxos(m.Key)
@@ -426,7 +426,7 @@ func (db *DBNode) pickNodeForTX(commands [] fleetdb.Command) fleetdb.ID {
 
 
 //Leader Chnage
-func (db *DBNode) handleLeaderChange(m wpaxos2.LeaderChange) {
+func (db *DBNode) handleLeaderChange(m wpaxos.LeaderChange) {
 	log.Debugf("Replica %s Change to %s ===[%v]===>>> Replica %s\n", m.From, m.To, m, db.ID())
 	if m.To == db.ID() {
 		//log.Debugf("Replica %s : change leader of Key %s\n", r.ID(), string(m.Key))

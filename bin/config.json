@@ -31,5 +31,6 @@
     "overload_threshold":1.05,
     "tx_lease_duration":500,
     "RS":1,
-    "handoverN":5
+    "handoverN":5,
+    "max_idle_connections":100
 }

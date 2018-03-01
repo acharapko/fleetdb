@@ -1,4 +1,4 @@
-package wpaxos2
+package wpaxos
 
 import (
 	"github.com/acharapko/fleetdb"
@@ -194,25 +194,34 @@ func (r *Replica) handleAcceptTX(m AcceptTX) {
 	keys := make([]fleetdb.Key, len(m.P2as))
 
 	for i, p2a := range m.P2as {
+		slots[i] = p2a.Slot
+		cmds[i] = p2a.Command
+		keys[i] = p2a.Command.Key
+	}
+	tx := fleetdb.NewInProgressTX(m.TxID, cmds, slots)
+
+	for i, p2a := range m.P2as {
 		p := r.GetPaxos(p2a.Command.Key)
 
 		p.GetAccessToken()
 
-		p.ProcessP2a(p2a, true)
+		p.ProcessP2a(p2a, tx)
 		p2bs[i] = Accepted{
 			Key:	p.Key,
 			Ballot: p.Ballot(),
 			Slot:   p2a.Slot,
 			ID:     p.ID(),
 		}
-		cmds[i] = p2a.Command
-		keys[i] = p2a.Command.Key
-		slots[i] = p2a.Slot
+
 		p.ReleaseAccessToken()
 	}
+
 	r.txl.Lock()
-	r.txs[m.TxID] = fleetdb.NewInProgressTX(m.TxID, cmds, slots)
+	r.txs[m.TxID] = tx
 	r.txl.Unlock()
+
+
+
 	accTx := new(AcceptedTX)
 	accTx.P2bs = p2bs
 	accTx.TxID = m.TxID
@@ -298,8 +307,9 @@ func (r *Replica) startTxP3(txid fleetdb.TXID, commit bool) {
 		}
 	}
 	txCommit := CommitTX{TXID: txid, P3s:p3s}
-	log.Debugf("Replica %s: Broadcast TX Commit %v\n", r.ID(), txid)
-	r.Broadcast(&txCommit)
+	log.Debugf("Replica %s: RBroadcast TX Commit %v\n", r.ID(), txid)
+	//r.Broadcast(&txCommit)
+	r.RBroadcast(r.ID().Zone(), &txCommit)
 
 	if !commit {
 		//we abort, so can delete this TX.
