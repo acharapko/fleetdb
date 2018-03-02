@@ -105,6 +105,7 @@ func (sock *socket) RBroadcast(zone int, msg interface{}) {
 	hlcTime := HLClock.Now()
 	hdr := MsgHeader{HLCTime:hlcTime}
 	zones := sock.GetReplicationGroupZones(zone)
+	log.Debugf("RBroadcast to zones: %v\n", zones)
 	for _, z := range zones {
 		for id := range sock.nodes {
 			if id == sock.id {

@@ -21,7 +21,7 @@ type entry struct {
 	request   *fleetdb.Request
 
 	quorum    *fleetdb.Quorum
-	timestamp time.Time
+	timestamp int64
 }
 
 func (e entry) String() string {
@@ -195,16 +195,13 @@ func (p *Paxos) P2aFillSlot(cmd fleetdb.Command, req *fleetdb.Request, tx *fleet
 		request:   req,
 		tx:        tx,
 		quorum:    fleetdb.NewQuorum(),
-		timestamp: time.Now(),
 	}
-	/*if req != nil {
-		e.txtime = req.Timestamp
+	if req != nil {
+		e.timestamp = req.Timestamp
 	}
 	if tx != nil {
-		e.TxID = tx.TxID
-		e.isTxSlot = true
-		e.txtime = tx.Timestamp
-	}*/
+		e.timestamp = tx.Timestamp
+	}
 	p.log[p.slot] = e
 	p.log[p.slot].quorum.ACK(p.ID())
 }
@@ -282,6 +279,7 @@ func (p *Paxos) update(scb map[int]CommandBallot) {
 }
 
 func (p* Paxos) forceExec(cb CommandBallot, slot int) {
+	log.Debugf("Replica %s forcing execution of %v\n", p.ID(), cb)
 	if cb.Executed && p.execute < slot {
 		p.execute = slot
 		p.Exec()
@@ -521,7 +519,7 @@ func (p *Paxos) Exec() {
 		if e.command.Operation == fleetdb.TX_LEASE  {
 			//p.Lock()
 			txid := binary.LittleEndian.Uint64(e.command.Value)
-			p.setLease(e.tx.Timestamp, fleetdb.TXID(txid))
+			p.setLease(e.timestamp, fleetdb.TXID(txid))
 			if e.request != nil {
 				e.request.Reply(fleetdb.Reply{
 					Command: e.command,

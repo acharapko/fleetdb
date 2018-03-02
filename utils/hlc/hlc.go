@@ -20,7 +20,9 @@ func NewHLC(pt int64) *HLC {
 	return &hlc
 }
 
-
+func (hlc *HLC) ReadClock() Timestamp {
+	return *hlc.currentHLC //return timestamp
+}
 
 func (hlc *HLC) Now() Timestamp{
 	hlc.Lock()
@@ -33,7 +35,7 @@ func (hlc *HLC) Now() Timestamp{
 		hlc.currentHLC.SetPhysicalTime(pt)
 		hlc.currentHLC.ResetLogical()
 	}
-	return *hlc.currentHLC //return value of timestamp
+	return *hlc.currentHLC //return timestamp
 
 }
 

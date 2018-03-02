@@ -219,7 +219,7 @@ func (r *Replica) handleAcceptTX(m AcceptTX) {
 	r.txl.Lock()
 	r.txs[m.TxID] = tx
 	r.txl.Unlock()
-
+	go r.ExecTx(tx)
 
 
 	accTx := new(AcceptedTX)
