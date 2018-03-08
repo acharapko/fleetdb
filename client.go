@@ -57,7 +57,7 @@ func (c *Client) RESTGet(key Key) Value {
 	id := c.getNodeID(key)
 	url := c.http[id] + "/" + string(key)
 
-	log.Debugf("RESTGET %s\n", string(key))
+	log.Debugf("RESTGET %s cid=%d\n", string(key), c.cid)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -117,7 +117,7 @@ func (c *Client) RESTPut(key Key, value Value) {
 	c.cid++
 	id := c.getNodeID(key)
 	url := c.http[id] + "/" + string(key)
-	log.Debugf("RESTPUT %s\n", string(key))
+	log.Debugf("RESTPUT %s cid=%d\n", string(key), c.cid)
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewBuffer(value))
 	if err != nil {
 		log.Errorln(err)

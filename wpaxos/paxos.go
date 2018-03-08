@@ -32,27 +32,28 @@ func (e entry) String() string {
 type Paxos struct {
 	fleetdb.Node
 
-	Key fleetdb.Key
+	Key 			fleetdb.Key
 
-	log     map[int]*entry  // log ordered by slot
-	execute int             // next execute slot number
-	Active  bool            // Active leader
-	ballot  fleetdb.Ballot // highest ballot number
-	slot    int             // highest slot number
+	log     		map[int]*entry  // log ordered by slot
+	execute 		int             // next execute slot number
+	Active  		bool            // Active leader
+	Try		 		int			//Try Number for P1a
+	ballot  		fleetdb.Ballot // highest ballot number
+	slot    		int             // highest slot number
 
 	txLeaseDuration time.Duration
 	txLeaseStart    time.Time
 	txTime			int64
 	txLease			fleetdb.TXID
 
-	quorum   *fleetdb.Quorum    // phase 1 quorum
-	requests []*fleetdb.Request // phase 1 pending requests
+	quorum   		*fleetdb.Quorum    // phase 1 quorum
+	requests 		[]*fleetdb.Request // phase 1 pending requests
 
 	//lockNum	int
 
 	//sync.RWMutex //Lock to control concurrent access to the same paxos instance
 
-	Token chan bool
+	Token 			chan bool
 
 }
 
@@ -140,7 +141,7 @@ func (p *Paxos) P1a() {
 	p.ballot.Next(p.ID())
 	p.quorum.Reset()
 	p.quorum.ACK(p.ID())
-	m := Prepare{Key: p.Key, Ballot: p.ballot}
+	m := Prepare{Key: p.Key, Ballot: p.ballot, Try:p.Try}
 	log.Debugf("Replica %s broadcast [%v]\n", p.ID(), m)
 	p.Broadcast(&m)
 }
@@ -154,9 +155,18 @@ func (p *Paxos) P1aTX(t int64) {
 	p.ballot.Next(p.ID())
 	p.quorum.Reset()
 	p.quorum.ACK(p.ID())
-	m := Prepare{Key: p.Key, Ballot: p.ballot, txTime:t}
+	m := Prepare{Key: p.Key, Ballot: p.ballot, txTime:t, Try:p.Try}
 	log.Debugf("Replica %s broadcast [%v]\n", p.ID(), m)
 	p.Broadcast(&m)
+}
+
+func (p *Paxos) P1aRetry(try int) {
+	if p.Try < try {
+		return
+	} else {
+		p.Try = try
+		p.P1aNoBallotIncrease()
+	}
 }
 
 // P1a starts phase 1 prepare
@@ -167,7 +177,7 @@ func (p *Paxos) P1aNoBallotIncrease() {
 	}
 	p.quorum.Reset()
 	p.quorum.ACK(p.ID())
-	m := Prepare{Key: p.Key, Ballot: p.ballot}
+	m := Prepare{Key: p.Key, Ballot: p.ballot, Try: p.Try}
 	log.Debugf("Replica %s broadcast [%v]\n", p.ID(), m)
 	p.Broadcast(&m)
 }
@@ -212,23 +222,28 @@ func (p *Paxos) HandleP1a(m Prepare) {
 	defer p.ReleaseAccessToken()
 
 	l := make(map[int]CommandBallot)
-	for s := p.execute; s <= p.slot; s++ {
+	//p.execute is nxt slot to execute, but we need to send last executed slot
+	for s := p.execute - 1; s <= p.slot; s++ {
 
-		//TODO: HandleP1a needs to change when not doing full replication
-		//We should send all committed but not exec TX slots and all non-committed and non-executed regular slots.
 		if p.log[s] == nil {
 			continue
 		}
 
-		l[s] = CommandBallot{
+		cb := CommandBallot{
 			Command:	p.log[s].command,
 			Ballot:		p.log[s].ballot,
 			Executed: 	p.log[s].executed,
-			Committed:	p.log[s].commit,
-			Tx:			*p.log[s].tx}
+			Committed:	p.log[s].commit}
+
+		if p.log[s].tx != nil {
+			cb.Tx = *p.log[s].tx
+		}
+		l[s] = cb
+
 	}
 
 	lpf := false
+	lt := m.Try
 	hasLease := p.HasTXLease(m.txTime)
 	log.Debugf("Replica %s ===[%v]===>>> Replica %s {has lease = %b, bal=%v, p.slot=%d, p.exec=%d}\n", m.Ballot.ID(), m, p.ID(), hasLease, p.ballot, p.slot, p.execute)
 	// new leader
@@ -246,11 +261,12 @@ func (p *Paxos) HandleP1a(m Prepare) {
 
 
 	p.Send(m.Ballot.ID(), &Promise{
-		Key: 	p.Key,
-		Ballot: p.ballot,
-		ID:     p.ID(),
-		LPF:	lpf,
-		Log:    l,
+		Key: 		p.Key,
+		Ballot: 	p.ballot,
+		ID:     	p.ID(),
+		LPF:		lpf,
+		Try:		lt,
+		Log:    	l,
 	})
 }
 
@@ -279,8 +295,8 @@ func (p *Paxos) update(scb map[int]CommandBallot) {
 }
 
 func (p* Paxos) forceExec(cb CommandBallot, slot int) {
-	log.Debugf("Replica %s forcing execution of %v\n", p.ID(), cb)
 	if cb.Executed && p.execute < slot {
+		log.Debugf("Replica %s forcing execution of %v\n", p.ID(), cb)
 		p.execute = slot
 		p.Exec()
 	}
@@ -291,11 +307,12 @@ func (p *Paxos) HandleP1b(m Promise) {
 	p.GetAccessToken()
 	defer p.ReleaseAccessToken()
 	// old message
+
 	if m.Ballot < p.ballot || p.Active {
 
 		if m.LPF {
 			//we hit a lease, so retry later
-			defer p.P1aNoBallotIncrease()
+			defer p.P1aRetry(m.Try)
 		}
 
 		log.Debugf("Replica %s ignores old message [%v]\n", p.ID(), m)
@@ -317,6 +334,7 @@ func (p *Paxos) HandleP1b(m Promise) {
 	if m.Ballot.ID() == p.ID() && m.Ballot == p.ballot {
 		p.quorum.ACK(m.ID)
 		if p.quorum.Q1() {
+			p.Try = 0
 			p.Active = true
 			// propose any uncommitted entries
 			for i := p.execute; i <= p.slot; i++ {
@@ -422,8 +440,8 @@ func (p *Paxos) HandleP2b(m Accepted) bool {
 					Slot:    m.Slot,
 					Command: slotEntry.command,
 				}
-				p.Broadcast(&m)
-				log.Debugf("Replica %s broadcasted [%v]\n", p.ID(), m)
+				p.RBroadcast(p.ID().Zone(), &m)
+				log.Debugf("Replica %s RBroadcasted [%v]\n", p.ID(), m)
 				return true
 			} else {
 				log.Debugf("Replica %s NO Q2 [%v]\n", p.ID(), m)

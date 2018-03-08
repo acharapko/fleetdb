@@ -72,6 +72,10 @@ func (r *Replica) HandleTransaction(m fleetdb.Transaction) {
 	//if success we Commit
 	//if not, we abort
 
+	r.txl.Lock()
+	r.txs[m.TxID] = &m
+	r.txl.Unlock()
+
 	TxLeaseChan := make(chan fleetdb.Reply)
 	go r.waitForLease(&m, TxLeaseChan, m.TxID)
 	for _, c := range m.Commands {
@@ -178,9 +182,7 @@ func (r *Replica) startTxP2a(tx *fleetdb.Transaction) {
 	acceptTx.P2as = p2as
 	acceptTx.LeaderID = r.ID()
 	tx.MakeCommittedWaitingFlags(slots)
-	r.txl.Lock()
-	r.txs[acceptTx.TxID] = tx
-	r.txl.Unlock()
+
 	log.Debugf("Replica %s Rbroadcast Tx P2a [%v]\n", r.ID(), acceptTx)
 	r.RBroadcast(r.ID().Zone(), &acceptTx)
 }
@@ -420,8 +422,6 @@ func (r *Replica) HandleRequest(m fleetdb.Request) {
 	p := r.GetPaxos(k)
 	p.HandleRequest(m)
 }
-
-
 
 //WPaxos
 func (r *Replica) HandlePrepare(m Prepare) {

@@ -28,10 +28,11 @@ type Prepare struct {
 	Key fleetdb.Key
 	Ballot fleetdb.Ballot
 	txTime int64
+	Try 	int
 }
 
 func (p Prepare) String() string {
-	return fmt.Sprintf("Prepare {Key=%v, bal=%v, txtime=%v}", string(p.Key), p.Ballot, p.txTime)
+	return fmt.Sprintf("Prepare {Key=%v, bal=%v, Try=%d, txtime=%v}", string(p.Key), p.Ballot, p.Try, p.txTime)
 }
 
 type CommandBallot struct {
@@ -48,15 +49,16 @@ func (cb CommandBallot) String() string {
 
 // Promise phase 1b
 type Promise struct {
-	Key fleetdb.Key
-	Ballot fleetdb.Ballot
-	ID     fleetdb.ID               // from node id
-	LPF	   bool					//Lease Promise Failure
-	Log    map[int]CommandBallot // log since last execute (includes last execute)
+	Key 		fleetdb.Key
+	Ballot 		fleetdb.Ballot
+	ID     		fleetdb.ID               // from node id
+	LPF	   		bool					//Lease Promise Failure
+	Try 		int
+	Log    		map[int]CommandBallot // log since last execute (includes last execute)
 }
 
 func (p Promise) String() string {
-	return fmt.Sprintf("Promise {Key=%v, bal=%v, id=%v, log=%v}", string(p.Key), p.Ballot, p.ID, p.Log)
+	return fmt.Sprintf("Promise {Key=%v, bal=%v, try=%d, id=%v, log=%v}", string(p.Key), p.Ballot, p.Try, p.ID, p.Log)
 }
 
 // Accept phase 2a
