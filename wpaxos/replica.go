@@ -451,6 +451,16 @@ func (r *Replica) handlePromise(m Promise) {
 	log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.ID, m, r.ID())
 	p := r.GetPaxos(m.Key)
 
+	//find if any of the items belong to unfinished TX
+	for _, e := range m.Log {
+		if e.HasTx && !e.Executed {
+			//add this TX to the list of TX, as we have to recover
+			r.txl.Lock()
+			r.txs[e.Tx.TxID] = &e.Tx
+			r.txl.Unlock()
+		}
+	}
+
 	p.HandleP1b(m)
 
 }
