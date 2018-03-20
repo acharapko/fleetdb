@@ -40,11 +40,12 @@ type CommandBallot struct {
 	Ballot  	fleetdb.Ballot
 	Executed	bool
 	Committed	bool
+	HasTx		bool
 	Tx			fleetdb.Transaction
 }
 
 func (cb CommandBallot) String() string {
-	return fmt.Sprintf("c=%v b=%v", cb.Command, cb.Ballot)
+	return fmt.Sprintf("c=%v b=%v, exec=%t", cb.Command, cb.Ballot, cb.Executed)
 }
 
 // Promise phase 1b
@@ -58,20 +59,21 @@ type Promise struct {
 }
 
 func (p Promise) String() string {
-	return fmt.Sprintf("Promise {Key=%v, bal=%v, try=%d, id=%v, log=%v}", string(p.Key), p.Ballot, p.Try, p.ID, p.Log)
+	return fmt.Sprintf("Promise {Key=%v, bal=%v, try=%d, id=%v, lpf=%t, log=%v}", string(p.Key), p.Ballot, p.Try, p.ID, p.LPF, p.Log)
 }
 
 // Accept phase 2a
 type Accept struct {
-	Key fleetdb.Key
-	Ballot  fleetdb.Ballot
-	Slot    int
-	Command fleetdb.Command
-	txtime int64
+	Key 		fleetdb.Key
+	Ballot  	fleetdb.Ballot
+	Slot    	int
+	EpochSlot 	int
+	Command 	fleetdb.Command
+	txtime 		int64
 }
 
 func (a Accept) String() string {
-	return fmt.Sprintf("Accept {Key=%v, bal=%v, Slot=%v, Cmd=%v, txtime=%d}", string(a.Key), a.Ballot, a.Slot, a.Command, a.txtime)
+	return fmt.Sprintf("Accept {Key=%v, bal=%v, Slot=%v, EpochSlot=%v, Cmd=%v, txtime=%d}", string(a.Key), a.Ballot, a.Slot, a.EpochSlot, a.Command, a.txtime)
 }
 
 // Accept phase 2a for TX

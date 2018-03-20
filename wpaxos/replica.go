@@ -38,8 +38,6 @@ func NewReplica(config fleetdb.Config) *Replica {
 	r.Register(Commit{}, r.handleCommit)
 	r.Register(CommitTX{}, r.handleCommitTX)
 
-
-
 	return r
 }
 
@@ -87,43 +85,42 @@ func (r *Replica) HandleTransaction(m fleetdb.Transaction) {
 		r.Unlock()*/
 
 		if p != nil && p.IsLeader() {
-			r.sendLeaseP2a(c, p, m.Timestamp, m.TxID, TxLeaseChan)
+			r.sendLeaseP2a(c, p, m, TxLeaseChan)
 		} else {
 			//we need to steal
-			r.sendTxP1a(c, p, m.Timestamp, m.TxID, TxLeaseChan)
+			r.sendTxP1a(c, p, m, TxLeaseChan)
 		}
 	}
 }
 
-
-func (r *Replica) createLeaseRequest(c fleetdb.Command, txtime int64, txid fleetdb.TXID, TxLeaseChan chan fleetdb.Reply) fleetdb.Request {
+func (r *Replica) createLeaseRequest(c fleetdb.Command, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) fleetdb.Request {
 	cmdLease := new(fleetdb.Command)
 	cmdLease.Key = c.Key
 
 	//put tx id in the value
 	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, uint64(txid))
+	binary.LittleEndian.PutUint64(b, uint64(tx.TxID))
 	cmdLease.Value = b
 
 	cmdLease.Operation = fleetdb.TX_LEASE
-	return fleetdb.Request{Command:*cmdLease, C:TxLeaseChan, Timestamp:txtime}
+	return fleetdb.Request{Command:*cmdLease, C:TxLeaseChan, Timestamp:tx.Timestamp}
 }
 
-func (r *Replica) sendLeaseP2a(c fleetdb.Command, p *Paxos, t int64, txid fleetdb.TXID, TxLeaseChan chan fleetdb.Reply) {
-	leaseReq := r.createLeaseRequest(c, t, txid, TxLeaseChan)
+func (r *Replica) sendLeaseP2a(c fleetdb.Command, p *Paxos, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) {
+	leaseReq := r.createLeaseRequest(c, tx, TxLeaseChan)
 	p.GetAccessToken()
 	defer p.ReleaseAccessToken()
 
 	p.P2a(&leaseReq)
 }
 
-func (r *Replica) sendTxP1a(c fleetdb.Command, p *Paxos, t int64, txid fleetdb.TXID, TxLeaseChan chan fleetdb.Reply) {
-	leaseReq := r.createLeaseRequest(c, t, txid, TxLeaseChan)
+func (r *Replica) sendTxP1a(c fleetdb.Command, p *Paxos, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) {
+	leaseReq := r.createLeaseRequest(c, tx, TxLeaseChan)
 	p.GetAccessToken()
 	defer p.ReleaseAccessToken()
 
 	p.AddRequest(leaseReq)
-	p.P1aTX(t)
+	p.P1aTX(tx.Timestamp)
 }
 
 func (r *Replica) waitForLease(m *fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply, TxID fleetdb.TXID)  {
@@ -133,6 +130,9 @@ func (r *Replica) waitForLease(m *fleetdb.Transaction, TxLeaseChan chan fleetdb.
 		reply := <- TxLeaseChan
 		log.Debugf("Replica %s received TX_LEASE reply %v\n", r.ID(), reply)
 		recvd++
+		if reply.Err != nil {
+			log.Debugf("Wait for Lease error %v\n", reply.Err)
+		}
 	}
 	//now we can start p2a for all keys
 	r.startTxP2a(m)
@@ -145,14 +145,19 @@ func (r *Replica) startTxP2a(tx *fleetdb.Transaction) {
 	slots := make([]int, numKeys)
 
 	tx.MakeExecChannel(numKeys)
-	for _, c := range tx.Commands {
 
+	//lock all Paxos for the TX
+	for _, c := range tx.Commands {
 		p := r.GetPaxos(c.Key)
 		p.GetAccessToken()
+	}
+	proceedOk := true
+	for _, c := range tx.Commands {
+		p := r.GetPaxos(c.Key)
 		if p.Ballot().ID() != r.ID() {
+			proceedOk = false
 			//there is a key we do not own
 			//so we reject
-
 			log.Debugf("Replica %s: startTxP2a TX {%v} REJECT SEND TO CLIENT %s Due to {key=%v, bal=%v}\n", r.ID(), tx.TxID, tx.ClientID, string(p.Key), p.Ballot())
 			tx.Reply(fleetdb.TransactionReply{
 				OK:        false,
@@ -161,20 +166,27 @@ func (r *Replica) startTxP2a(tx *fleetdb.Transaction) {
 				Commands:  tx.Commands,
 				Timestamp: time.Now().UnixNano(),
 			})
-			p.ReleaseAccessToken()
-			return
+			break
 		}
+	}
+
+	if proceedOk {
+		for i, c := range tx.Commands {
+			p := r.GetPaxos(c.Key)
+			p.P2aFillSlot(c, nil, tx)
+			slots[i] = p.SlotNum()
+			p2as[i] = Accept{Key: p.Key, Ballot: p.Ballot(), Slot: p.SlotNum(), Command: c}
+		}
+	}
+
+	//unlock all paxos fot TX
+	for _, c := range tx.Commands {
+		p := r.GetPaxos(c.Key)
 		p.ReleaseAccessToken()
 	}
 
-	for i, c := range tx.Commands {
-		p := r.GetPaxos(c.Key)
-		p.GetAccessToken()
-
-		p.P2aFillSlot(c, nil, tx)
-		slots[i] = p.SlotNum()
-		p2as[i] = Accept{Key: p.Key, Ballot:p.Ballot(), Slot:p.SlotNum(), Command:c}
-		p.ReleaseAccessToken()
+	if !proceedOk {
+		return
 	}
 
 	acceptTx := new(AcceptTX)
@@ -305,7 +317,9 @@ func (r *Replica) startTxP3(txid fleetdb.TXID, commit bool) {
 
 		if p != nil {
 			log.Debugf("Replica %s: Attempt to Exec %v\n", r.ID(), string(cmd.Key))
+			p.GetAccessToken()
 			p.Exec()
+			p.ReleaseAccessToken()
 		}
 	}
 	txCommit := CommitTX{TXID: txid, P3s:p3s}
@@ -388,8 +402,8 @@ func (r *Replica) ExecTx(tx *fleetdb.Transaction) {
 	//can now try to execute next slots, as there may be some that waited for this TX
 	for _, cmd := range tx.Commands {
 		p := r.GetPaxos(cmd.Key)
-		p.ReleaseAccessToken() //and give up all locks
 		p.Exec()
+		p.ReleaseAccessToken() //and give up all locks
 	}
 
 	tx.CloseExecChannel()
@@ -455,9 +469,11 @@ func (r *Replica) handleAccepted(m Accepted) {
 	p := r.GetPaxos(m.Key)
 
 	needExec := p.HandleP2b(m)
-	log.Debugf("handleAccepted needExec %s\n", needExec)
+	log.Debugf("handleAccepted needExec %t\n", needExec)
 
 	if needExec {
+		p.GetAccessToken()
+		defer p.ReleaseAccessToken()
 		p.Exec()
 	}
 

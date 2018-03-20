@@ -17,6 +17,14 @@ func Max(a, b int) int {
 	return a
 }
 
+// Max of two int
+func Min(a, b int) int {
+	if a > b {
+		return b
+	}
+	return a
+}
+
 // VMax of a vector
 func VMax(v ...int) int {
 	max := v[0]

@@ -271,7 +271,9 @@ func (c *Client) JSONTX(commands []Command) {
 	log.Debugf("TX: %v\n", tx)
 	data, err := json.Marshal(*tx)
 	rep, err := http.Post(url, "application/json", bytes.NewBuffer(data))
-	defer rep.Body.Close()
+	if rep != nil {
+		defer rep.Body.Close()
+	}
 	if err != nil {
 		log.Errorln(err)
 		return
