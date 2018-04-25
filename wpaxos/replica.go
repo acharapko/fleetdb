@@ -6,6 +6,9 @@ import (
 	"time"
 	"sync"
 	"encoding/binary"
+	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/ids"
+	"github.com/acharapko/fleetdb/config"
 )
 
 
@@ -13,17 +16,18 @@ type Replica struct {
 	fleetdb.Node
 
 	sync.RWMutex
-	paxi  	map[string]*Paxos
+	tables  map[string]*Table
 
 	txl 	sync.RWMutex
-	txs		map[fleetdb.TXID] *fleetdb.Transaction //this is the map of all outstanding TX Replica knows of
+	txs		map[ids.TXID] *fleetdb.Transaction //this is the map of all outstanding TX Replica knows of
 }
 
-func NewReplica(config fleetdb.Config) *Replica {
+func NewReplica(config config.Config) *Replica {
 	r := new(Replica)
 	r.Node = fleetdb.NewNode(config)
-	r.paxi = make(map[string]*Paxos)
-	r.txs = make(map[fleetdb.TXID] *fleetdb.Transaction)
+	//r.paxi = make(map[string]*Paxos)
+	r.tables = make(map[string]*Table)
+	r.txs = make(map[ids.TXID] *fleetdb.Transaction)
 	//transaction
 	r.Register(fleetdb.Transaction{}, r.HandleTransaction)
 	//request
@@ -38,24 +42,61 @@ func NewReplica(config fleetdb.Config) *Replica {
 	r.Register(Commit{}, r.handleCommit)
 	r.Register(CommitTX{}, r.handleCommitTX)
 
+	zones := make(map[int]int)
+	for id := range config.Addrs {
+		zones[id.Zone()]++
+	}
+
+	NumZones = len(zones)
+	NumNodes = len(config.Addrs)
+	NumLocalNodes = zones[config.ID.Zone()]
+	F = config.F
+	QuorumType = config.Quorum
+
 	return r
 }
 
-func (r *Replica) init(key fleetdb.Key) {
+func (r *Replica) init(key key_value.Key, table string) {
 	r.Lock()
 	defer r.Unlock()
-	if _, exists := r.paxi[key.B64()]; !exists {
-		log.Debugf("Init Paxos Replica for Key %s\n", key)
-		r.paxi[key.B64()] = NewPaxos(r, key)
+	if _, exists := r.tables[table]; !exists {
+		r.tables[table] = NewTable(table)
+	}
+	r.tables[table].Init(key, r)
+}
+
+func (r *Replica) GetPaxos(key key_value.Key, table string) *Paxos {
+	r.Lock()
+	if _, exists := r.tables[table]; exists {
+		defer r.Unlock()
+		return r.tables[table].GetPaxos(key)
+	} else {
+		r.Unlock()
+		r.init(key, table)
+		r.Lock()
+		defer r.Unlock()
+		return r.tables[table].GetPaxos(key)
 	}
 }
 
-func (r *Replica) GetPaxos(key fleetdb.Key) *Paxos {
+func (r *Replica) GetPaxosByCmd(cmd key_value.Command) *Paxos {
+	return r.GetPaxos(cmd.Key, cmd.Table)
+}
+
+func (r *Replica) GetTable(tableName string) *Table {
 	r.Lock()
 	defer r.Unlock()
 
-	return r.paxi[key.B64()]
+	tbl := r.tables[tableName]
+	if tbl == nil {
+		r.tables[tableName] = NewTable(tableName)
+		tbl = r.tables[tableName]
+	}
+	return tbl
 }
+
+
+
 /* ----------------------------------------------------------------------
  *
  *								Transactions
@@ -77,8 +118,8 @@ func (r *Replica) HandleTransaction(m fleetdb.Transaction) {
 	TxLeaseChan := make(chan fleetdb.Reply)
 	go r.waitForLease(&m, TxLeaseChan, m.TxID)
 	for _, c := range m.Commands {
-		r.init(c.Key)
-		p := r.GetPaxos(c.Key)
+		r.init(c.Key, c.Table)
+		p := r.GetPaxosByCmd(c)
 
 		/*r.Lock()
 		r.stats[c.Key.B64()].HitWeight(c.ClientID, len(m.Commands) / 2 + 1)
@@ -93,20 +134,21 @@ func (r *Replica) HandleTransaction(m fleetdb.Transaction) {
 	}
 }
 
-func (r *Replica) createLeaseRequest(c fleetdb.Command, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) fleetdb.Request {
-	cmdLease := new(fleetdb.Command)
+func (r *Replica) createLeaseRequest(c key_value.Command, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) fleetdb.Request {
+	cmdLease := new(key_value.Command)
 	cmdLease.Key = c.Key
+	cmdLease.Table = c.Table
 
 	//put tx id in the value
 	b := make([]byte, 8)
 	binary.LittleEndian.PutUint64(b, uint64(tx.TxID))
 	cmdLease.Value = b
 
-	cmdLease.Operation = fleetdb.TX_LEASE
+	cmdLease.Operation = key_value.TX_LEASE
 	return fleetdb.Request{Command:*cmdLease, C:TxLeaseChan, Timestamp:tx.Timestamp}
 }
 
-func (r *Replica) sendLeaseP2a(c fleetdb.Command, p *Paxos, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) {
+func (r *Replica) sendLeaseP2a(c key_value.Command, p *Paxos, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) {
 	leaseReq := r.createLeaseRequest(c, tx, TxLeaseChan)
 	p.GetAccessToken()
 	defer p.ReleaseAccessToken()
@@ -114,7 +156,7 @@ func (r *Replica) sendLeaseP2a(c fleetdb.Command, p *Paxos, tx fleetdb.Transacti
 	p.P2a(&leaseReq)
 }
 
-func (r *Replica) sendTxP1a(c fleetdb.Command, p *Paxos, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) {
+func (r *Replica) sendTxP1a(c key_value.Command, p *Paxos, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) {
 	leaseReq := r.createLeaseRequest(c, tx, TxLeaseChan)
 	p.GetAccessToken()
 	defer p.ReleaseAccessToken()
@@ -123,7 +165,7 @@ func (r *Replica) sendTxP1a(c fleetdb.Command, p *Paxos, tx fleetdb.Transaction,
 	p.P1aTX(tx.Timestamp)
 }
 
-func (r *Replica) waitForLease(m *fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply, TxID fleetdb.TXID)  {
+func (r *Replica) waitForLease(m *fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply, TxID ids.TXID)  {
 	log.Debugf("Replica %s waiting for TX lease {%v} %v\n", r.ID(), m.TxID, m)
 	recvd := 0
 	for recvd < len(m.Commands) {
@@ -148,12 +190,12 @@ func (r *Replica) startTxP2a(tx *fleetdb.Transaction) {
 
 	//lock all Paxos for the TX
 	for _, c := range tx.Commands {
-		p := r.GetPaxos(c.Key)
+		p := r.GetPaxosByCmd(c)
 		p.GetAccessToken()
 	}
 	proceedOk := true
 	for _, c := range tx.Commands {
-		p := r.GetPaxos(c.Key)
+		p := r.GetPaxos(c.Key, c.Table)
 		if p.Ballot().ID() != r.ID() {
 			proceedOk = false
 			//there is a key we do not own
@@ -172,16 +214,16 @@ func (r *Replica) startTxP2a(tx *fleetdb.Transaction) {
 
 	if proceedOk {
 		for i, c := range tx.Commands {
-			p := r.GetPaxos(c.Key)
+			p := r.GetPaxosByCmd(c)
 			p.P2aFillSlot(c, nil, tx)
 			slots[i] = p.SlotNum()
-			p2as[i] = Accept{Key: p.Key, Ballot: p.Ballot(), Slot: p.SlotNum(), Command: c}
+			p2as[i] = Accept{Ballot: p.Ballot(), Slot: p.SlotNum(), Command: c}
 		}
 	}
 
 	//unlock all paxos fot TX
 	for _, c := range tx.Commands {
-		p := r.GetPaxos(c.Key)
+		p := r.GetPaxos(c.Key, c.Table)
 		p.ReleaseAccessToken()
 	}
 
@@ -202,10 +244,10 @@ func (r *Replica) startTxP2a(tx *fleetdb.Transaction) {
 func (r *Replica) handleAcceptTX(m AcceptTX) {
 	log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.P2as[0].Ballot.ID(), m, r.ID())
 
-	cmds := make([]fleetdb.Command, len(m.P2as))
+	cmds := make([]key_value.Command, len(m.P2as))
 	slots := make([]int, len(m.P2as))
 	p2bs := make([]Accepted, len(m.P2as))
-	keys := make([]fleetdb.Key, len(m.P2as))
+	keys := make([]key_value.Key, len(m.P2as))
 
 	for i, p2a := range m.P2as {
 		slots[i] = p2a.Slot
@@ -215,13 +257,14 @@ func (r *Replica) handleAcceptTX(m AcceptTX) {
 	tx := fleetdb.NewInProgressTX(m.TxID, cmds, slots)
 
 	for i, p2a := range m.P2as {
-		p := r.GetPaxos(p2a.Command.Key)
+		p := r.GetPaxosByCmd(p2a.Command)
 
 		p.GetAccessToken()
 
 		p.ProcessP2a(p2a, tx)
 		p2bs[i] = Accepted{
 			Key:	p.Key,
+			Table:  *p.Table,
 			Ballot: p.Ballot(),
 			Slot:   p2a.Slot,
 			ID:     p.ID(),
@@ -250,7 +293,7 @@ func (r *Replica) handleAcceptedTX(msg AcceptedTX) {
 	r.txl.RUnlock()
 	if tx != nil {
 		for _, p2b := range msg.P2bs {
-			p := r.GetPaxos(p2b.Key)
+			p := r.GetPaxos(p2b.Key, p2b.Table)
 			p.GetAccessToken()
 			result := p.HandleP2bTX(p2b)
 			p.ReleaseAccessToken()
@@ -288,14 +331,15 @@ func (r *Replica) handleAcceptedTX(msg AcceptedTX) {
 
 }
 
-func (r *Replica) GetTX(txid fleetdb.TXID) *fleetdb.Transaction {
+func (r *Replica) GetTX(txid ids.TXID) *fleetdb.Transaction {
 	r.txl.RLock()
 	defer r.txl.RUnlock()
+	log.Debug("Good")
 	return r.txs[txid]
 }
 
 
-func (r *Replica) startTxP3(txid fleetdb.TXID, commit bool) {
+func (r *Replica) startTxP3(txid ids.TXID, commit bool) {
 	r.txl.RLock()
 	numKeys := len(r.txs[txid].CmdMeta)
 	p3s := make([]Commit, numKeys)
@@ -307,12 +351,12 @@ func (r *Replica) startTxP3(txid fleetdb.TXID, commit bool) {
 	for i, meta := range tx.CmdMeta {
 		//log.Debugf("Replica %s: i = %d \n", r.ID(), i)
 		cmd := tx.Commands[i]
-		p := r.GetPaxos(cmd.Key)
+		p := r.GetPaxosByCmd(cmd)
 		if !commit {
-			cmd.Operation = fleetdb.NOOP
+			cmd.Operation = key_value.NOOP
 			p.SlotNOOP(meta.Slot)
 		}
-		p3 := Commit{Key: cmd.Key, Slot: meta.Slot, Command: cmd}
+		p3 := Commit{Slot: meta.Slot, Command: cmd}
 		p3s[i] = p3
 
 		if p != nil {
@@ -343,7 +387,7 @@ func (r *Replica) handleCommitTX(m CommitTX) {
 	r.txl.Lock()
 	if r.txs[m.TXID] == nil {
 		//we have not seen this TX yet
-		cmds := make([]fleetdb.Command, len(m.P3s))
+		cmds := make([]key_value.Command, len(m.P3s))
 		slots := make([]int, len(m.P3s))
 		for i, p3 := range m.P3s {
 			slots[i] = p3.Slot
@@ -354,7 +398,7 @@ func (r *Replica) handleCommitTX(m CommitTX) {
 	r.txl.Unlock()
 	for _, p3 := range m.P3s {
 		k := p3.Command.Key
-		r.init(k)
+		r.init(k, p3.Command.Table)
 		r.handleCommit(p3)
 	}
 }
@@ -378,13 +422,13 @@ func (r *Replica) ExecTx(tx *fleetdb.Transaction) {
 
 	//get all locks
 	for _, cmd := range tx.Commands {
-		p := r.GetPaxos(cmd.Key)
+		p := r.GetPaxosByCmd(cmd)
 		p.GetAccessToken()
 	}
 
 	//can execute TX now
 	for _, cmd := range tx.Commands {
-		p := r.GetPaxos(cmd.Key)
+		p := r.GetPaxosByCmd(cmd)
 		p.ExecTXCmd()
 	}
 
@@ -401,7 +445,7 @@ func (r *Replica) ExecTx(tx *fleetdb.Transaction) {
 
 	//can now try to execute next slots, as there may be some that waited for this TX
 	for _, cmd := range tx.Commands {
-		p := r.GetPaxos(cmd.Key)
+		p := r.GetPaxosByCmd(cmd)
 		p.Exec()
 		p.ReleaseAccessToken() //and give up all locks
 	}
@@ -410,11 +454,12 @@ func (r *Replica) ExecTx(tx *fleetdb.Transaction) {
 }
 
 
-func (r *Replica) processLeaderChange(to fleetdb.ID, p *Paxos) {
+func (r *Replica) processLeaderChange(to ids.ID, p *Paxos) {
 	if to.Zone() != r.ID().Zone() {
 		//we are changing zone.
 		p.Send(to, &LeaderChange{
 			Key:    p.Key,
+			Table:  *p.Table,
 			To:     to,
 			From:   r.ID(),
 			Ballot: p.Ballot(),
@@ -431,17 +476,18 @@ func (r *Replica) processLeaderChange(to fleetdb.ID, p *Paxos) {
 //Request
 func (r *Replica) HandleRequest(m fleetdb.Request) {
 	log.Debugf("Replica %s received %v\n", r.ID(), m)
+	t := m.Command.Table
 	k := m.Command.Key
-	r.init(k)
-	p := r.GetPaxos(k)
+	r.init(k, t)
+	p := r.GetPaxosByCmd(m.Command)
 	p.HandleRequest(m)
 }
 
 //WPaxos
 func (r *Replica) HandlePrepare(m Prepare) {
 	log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, r.ID())
-	r.init(m.Key)
-	p := r.GetPaxos(m.Key)
+	r.init(m.Key, m.Table)
+	p := r.GetPaxos(m.Key, m.Table)
 
 	p.HandleP1a(m)
 
@@ -449,7 +495,7 @@ func (r *Replica) HandlePrepare(m Prepare) {
 
 func (r *Replica) handlePromise(m Promise) {
 	log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.ID, m, r.ID())
-	p := r.GetPaxos(m.Key)
+	p := r.GetPaxos(m.Key, m.Table)
 
 	//find if any of the items belong to unfinished TX
 	for _, e := range m.Log {
@@ -467,8 +513,8 @@ func (r *Replica) handlePromise(m Promise) {
 
 func (r *Replica) handleAccept(m Accept) {
 	log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, r.ID())
-	r.init(m.Key)
-	p := r.GetPaxos(m.Key)
+	r.init(m.Command.Key, m.Command.Table)
+	p := r.GetPaxosByCmd(m.Command)
 
 	p.HandleP2a(m)
 
@@ -476,7 +522,7 @@ func (r *Replica) handleAccept(m Accept) {
 
 func (r *Replica) handleAccepted(m Accepted) {
 	log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.ID, m, r.ID())
-	p := r.GetPaxos(m.Key)
+	p := r.GetPaxos(m.Key, m.Table)
 
 	needExec := p.HandleP2b(m)
 	log.Debugf("handleAccepted needExec %t\n", needExec)
@@ -491,8 +537,8 @@ func (r *Replica) handleAccepted(m Accepted) {
 
 func (r *Replica) handleCommit(m Commit) {
 	log.Debugf("Replica ===[%v]===>>> Replica %s\n", m, r.ID())
-	r.init(m.Key)
-	p := r.GetPaxos(m.Key)
+	r.init(m.Command.Key, m.Command.Table)
+	p := r.GetPaxosByCmd(m.Command)
 
 	p.HandleP3(m)
 
@@ -504,10 +550,8 @@ func (r *Replica) CountKeys() int {
 	r.RLock()
 	defer r.RUnlock()
 
-	for _, paxos := range r.paxi {
-		if paxos.Active {
-			sum++
-		}
+	for _, table := range r.tables {
+		sum += table.CountKeys()
 	}
 
 	return sum

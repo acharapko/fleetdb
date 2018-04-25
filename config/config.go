@@ -1,4 +1,4 @@
-package fleetdb
+package config
 
 import (
 	"encoding/json"
@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/acharapko/fleetdb/log"
+	"github.com/acharapko/fleetdb/ids"
 )
 
 var config = flag.String("config", "config.json", "Configuration file for paxi replica. Defaults to config.json.")
@@ -21,9 +22,9 @@ const (
 )
 
 type Config struct {
-	ID              ID            `json:"-"`
-	Addrs           map[ID]string `json:"address"`      // address for node communication
-	HTTPAddrs       map[ID]string `json:"http_address"` // address for bench server communication
+	ID              ids.ID            `json:"-"`
+	Addrs           map[ids.ID]string `json:"address"`      // address for node communication
+	HTTPAddrs       map[ids.ID]string `json:"http_address"` // address for bench server communication
 	Quorum          string        `json:"quorum"`       // type of the quorums
 	F               int           `json:"f"`            // number of failure zones in general grid quorums
 	RS              int           `json:"rs"`            // number of failure zones in a replication region
@@ -40,7 +41,7 @@ type Config struct {
 	BalGossipInt    int64         `json:"balance_gossip_interval"` //Interval between balance data gossip messages in ms
 	OverldThrshld   float64       `json:"overload_threshold"` //how many percent over even distribution is considered to be overlaod
 	TX_lease	    int       	  `json:"tx_lease_duration"` //how long is tx lease (in ms) preventing other nodes from stealing
-	handoverN	    int       	  `json:"handoverN"` //how many request we need before making polite handover decision
+	HandoverN	    int       	  `json:"handoverN"` //how many request we need before making polite handover decision
 	MaxIdleCnx	    int       	  `json:"max_idle_connections"` //http max idle connection per host
 
 
@@ -54,8 +55,8 @@ func MakeDefaultConfig() Config {
 	dbDir[0] = "/tmp/lvldb/"
 	config := new(Config)
 	config.ID = "1.1"
-	config.Addrs = map[ID]string{"1.1": "127.0.0.1:" + strconv.Itoa(PORT)}
-	config.HTTPAddrs = map[ID]string{"1.1": "http://localhost:" + strconv.Itoa(HTTP_PORT)}
+	config.Addrs = map[ids.ID]string{"1.1": "127.0.0.1:" + strconv.Itoa(PORT)}
+	config.HTTPAddrs = map[ids.ID]string{"1.1": "http://localhost:" + strconv.Itoa(HTTP_PORT)}
 	config.Quorum = "fgrid"
 	config.LevelDBDir = dbDir
 	config.Adaptive = true
@@ -67,13 +68,13 @@ func MakeDefaultConfig() Config {
 	config.OverldThrshld = 0.05
 	config.TX_lease = 1000
 	config.RS = 1
-	config.handoverN = 5
+	config.HandoverN = 5
 	config.MaxIdleCnx = 100
 	return *config
 }
 
 // NewConfig creates config object with given node id and config file path
-func NewConfig(id ID) Config {
+func NewConfig(id ids.ID) Config {
 	config := new(Config)
 	config.ID = id
 	err := config.Load()

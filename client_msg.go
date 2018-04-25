@@ -4,6 +4,9 @@ import (
 	"encoding/gob"
 	"fmt"
 	"github.com/acharapko/fleetdb/log"
+	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/ids"
+	"github.com/acharapko/fleetdb/config"
 )
 
 func init() {
@@ -13,20 +16,16 @@ func init() {
 	gob.Register(ReadReply{})
 	gob.Register(TransactionReply{})
 	gob.Register(Transaction{})
-	gob.Register(Register{})
-	gob.Register(Config{})
+	gob.Register(config.Config{})
 }
 
 /***************************
  * Client-Replica Messages *
  ***************************/
 
-// CommandID identifies commands from each bench, can be any integer type.
-type CommandID uint64
-
 // Request is bench reqeust with http response channel
 type Request struct {
-	Command   Command
+	Command   key_value.Command
 	Timestamp int64
 
 	C chan Reply
@@ -43,8 +42,8 @@ func (r Request) String() string {
 
 // Reply includes all info that might replies to back the client for the corresponding request
 type Reply struct {
-	Command   Command
-	Value 	  Value
+	Command   key_value.Command
+	Value 	  key_value.Value
 	Timestamp int64
 	Err       error
 }
@@ -56,8 +55,8 @@ func (r Reply) String() string {
 // Read can be used as a special request that directly read the value of
 // key without go through replication protocol in Replica
 type Read struct {
-	CommandID CommandID
-	Key       Key
+	CommandID ids.CommandID
+	Key       key_value.Key
 }
 
 func (r Read) String() string {
@@ -66,8 +65,8 @@ func (r Read) String() string {
 
 // ReadReply cid and value of reading key
 type ReadReply struct {
-	CommandID CommandID
-	Value     Value
+	CommandID ids.CommandID
+	Value     key_value.Value
 }
 
 func (r ReadReply) String() string {
@@ -76,12 +75,12 @@ func (r ReadReply) String() string {
 
 // Transaction contains arbitrary number of commands in one request
 type Transaction struct {
-	TxID TXID
-	CommandID	CommandID
-	Commands  	[]Command
-	CmdMeta 	[]TxCommandMeta
+	TxID ids.TXID
+	CommandID	ids.CommandID
+	Commands  	[]key_value.Command
+	CmdMeta 	[]key_value.TxCommandMeta
 
-	ClientID  ID
+	ClientID  ids.ID
 
 	p3started bool
 
@@ -90,12 +89,12 @@ type Transaction struct {
 	execChan  chan TxExec
 }
 
-func NewInProgressTX(TxID TXID, cmds []Command, s []int) *Transaction {
+func NewInProgressTX(TxID ids.TXID, cmds []key_value.Command, s []int) *Transaction {
 
-	cmdMetas := make([]TxCommandMeta, len(cmds))
+	cmdMetas := make([]key_value.TxCommandMeta, len(cmds))
 
 	for i, slot := range s {
-		cmdMeta := TxCommandMeta{false, false, slot}
+		cmdMeta := key_value.TxCommandMeta{false, false, slot}
 		cmdMetas[i] = cmdMeta
 	}
 
@@ -109,10 +108,10 @@ func NewInProgressTX(TxID TXID, cmds []Command, s []int) *Transaction {
 }
 
 func (t *Transaction) MakeCommittedWaitingFlags(slots []int) {
-	cmdMetas := make([]TxCommandMeta, len(slots))
+	cmdMetas := make([]key_value.TxCommandMeta, len(slots))
 
 	for i := 0; i < len(slots); i++ {
-		cmdMeta := TxCommandMeta{false, false, slots[i]}
+		cmdMeta := key_value.TxCommandMeta{false, false, slots[i]}
 		cmdMetas[i] = cmdMeta
 	}
 	t.CmdMeta = cmdMetas
@@ -131,7 +130,7 @@ func (r *Transaction) Reply(reply TransactionReply) {
 }
 
 // Reply replies to the current request
-func (r *Transaction) ReadyToExec(slot int, key Key) {
+func (r *Transaction) ReadyToExec(slot int, key key_value.Key) {
 	if r.execChan != nil {
 		r.execChan <- TxExec{Slotnum: slot, Key: key}
 	}
@@ -160,18 +159,18 @@ func (tx *Transaction) CanSendP3() bool  {
 
 func (tx *Transaction) AreAllCommitted() bool  {
 	for _, meta := range tx.CmdMeta {
-		if !meta.cmdCommitted {
+		if !meta.CmdCommitted {
 			return false
 		}
 	}
 	return true
 }
 
-func (tx *Transaction) MarkCommitted(key Key) {
+func (tx *Transaction) MarkCommitted(key key_value.Key) {
 	log.Debugf("Marking Committed: len(meta) = %d\n", len(tx.CmdMeta))
 	for i, cmd := range tx.Commands {
-		if cmd.Key.B64() == key.B64() && !tx.CmdMeta[i].cmdCommitted {
-			tx.CmdMeta[i].cmdCommitted = true
+		if cmd.Key.B64() == key.B64() && !tx.CmdMeta[i].CmdCommitted {
+			tx.CmdMeta[i].CmdCommitted = true
 			return
 		}
 	}
@@ -179,18 +178,18 @@ func (tx *Transaction) MarkCommitted(key Key) {
 
 func (tx *Transaction) AreAllWaiting() bool  {
 	for _, meta := range tx.CmdMeta {
-		if !meta.cmdWaitingExec{
+		if !meta.CmdWaitingExec{
 			return false
 		}
 	}
 	return true
 }
 
-func (tx *Transaction) MarkWaiting(key Key) {
+func (tx *Transaction) MarkWaiting(key key_value.Key) {
 	log.Debugf("Marking Waiting key %v in TX %v\n", string(key), tx.TxID)
 	for i, cmd := range tx.Commands {
-		if cmd.Key.B64() == key.B64() && !tx.CmdMeta[i].cmdWaitingExec {
-			tx.CmdMeta[i].cmdWaitingExec = true
+		if cmd.Key.B64() == key.B64() && !tx.CmdMeta[i].CmdWaitingExec {
+			tx.CmdMeta[i].CmdWaitingExec = true
 			return
 		}
 	}
@@ -199,30 +198,19 @@ func (tx *Transaction) MarkWaiting(key Key) {
 // TransactionReply is the result of transaction struct
 type TransactionReply struct {
 	OK        bool
-	CommandID CommandID
-	LeaderID  ID
-	ClientID  ID
-	Commands  []Command
+	CommandID ids.CommandID
+	LeaderID  ids.ID
+	ClientID  ids.ID
+	Commands  []key_value.Command
 	Timestamp int64
 	Err       error
 }
 
 type TxExec struct {
 	Slotnum		int
-	Key			Key
+	Key			key_value.Key
 }
 
 func (r TxExec) String() string {
 	return fmt.Sprintf("TxExec {key=%v, slotnum=%d}", r.Key, r.Slotnum)
-}
-
-/**************************
- *     Config Related     *
- **************************/
-
-// Register message type is used to regitster self (node or bench) with master node
-type Register struct {
-	Client bool
-	ID     ID
-	Addr   string
 }

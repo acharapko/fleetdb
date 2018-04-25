@@ -9,13 +9,15 @@ import (
 	"time"
 
 	"github.com/acharapko/fleetdb/log"
+	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/utils"
 )
 
 type DB interface {
 	Init()
-	Read(key int) Value
+	Read(key int) key_value.Value
 	Write(key int, value []byte)
-	TxWrite(key []int, value []Value)
+	TxWrite(key []int, value []key_value.Value)
 	WriteStr(key int, value string)
 
 	Stop()
@@ -123,7 +125,7 @@ func (b *Benchmarker) Run() {
 	var stop chan bool
 	if b.Move {
 		move := func() { b.Mu = float64(int(b.Mu+1) % b.K) }
-		stop = Schedule(move, time.Duration(b.Speed)*time.Millisecond)
+		stop = utils.Schedule(move, time.Duration(b.Speed)*time.Millisecond)
 		defer close(stop)
 	}
 
@@ -220,7 +222,7 @@ func (b *Benchmarker) worker(keys <-chan int, results chan<- time.Duration) {
 
 			if rand.Intn(100) < b.TW {
 				keys := make([]int, b.TXS)
-				vals := make([]Value, b.TXS)
+				vals := make([]key_value.Value, b.TXS)
 
 				keys[0] = k
 

@@ -1,24 +1,40 @@
-package fleetdb
+package wpaxos
 
-import "github.com/acharapko/fleetdb/log"
+import (
+	"github.com/acharapko/fleetdb/log"
+	"github.com/acharapko/fleetdb/ids"
+)
+
+var (
+	// NumZones total number of sites
+	NumZones int
+	// NumNodes total number of nodes
+	NumNodes int
+	// NumLocalNodes number of nodes per site
+	NumLocalNodes int
+	// F number of zone failures
+	F int
+	// QuorumType name of the quorums
+	QuorumType string
+)
 
 type Quorum struct {
 	size  int
-	acks  map[ID]bool
+	acks  map[ids.ID]bool
 	zones map[int]int
-	nacks map[ID]bool
+	nacks map[ids.ID]bool
 }
 
 func NewQuorum() *Quorum {
 	return &Quorum{
 		size:  0,
-		acks:  make(map[ID]bool, NumNodes),
+		acks:  make(map[ids.ID]bool, NumNodes),
 		zones: make(map[int]int, NumZones),
-		nacks: make(map[ID]bool, NumNodes),
+		nacks: make(map[ids.ID]bool, NumNodes),
 	}
 }
 
-func (q *Quorum) ACK(id ID) {
+func (q *Quorum) ACK(id ids.ID) {
 	if !q.acks[id] {
 		q.acks[id] = true
 		q.size++
@@ -26,7 +42,7 @@ func (q *Quorum) ACK(id ID) {
 	}
 }
 
-func (q *Quorum) NACK(id ID) {
+func (q *Quorum) NACK(id ids.ID) {
 	if !q.nacks[id] {
 		q.nacks[id] = true
 	}
@@ -42,9 +58,9 @@ func (q *Quorum) Size() int {
 
 func (q *Quorum) Reset() {
 	q.size = 0
-	q.acks = make(map[ID]bool, NumNodes)
+	q.acks = make(map[ids.ID]bool, NumNodes)
 	q.zones = make(map[int]int, NumZones)
-	q.nacks = make(map[ID]bool, NumNodes)
+	q.nacks = make(map[ids.ID]bool, NumNodes)
 }
 
 func (q *Quorum) Majority() bool {

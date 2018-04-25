@@ -1,10 +1,9 @@
-package db
+package db_node
 
 import (
 	"encoding/gob"
 	"fmt"
-
-	"github.com/acharapko/fleetdb"
+	"github.com/acharapko/fleetdb/ids"
 )
 
 func init() {
@@ -16,7 +15,7 @@ func init() {
 // Load Gossip
 type GossipBalance struct {
 	Items int
-	From   fleetdb.ID
+	From   ids.ID
 }
 
 func (gb GossipBalance) String() string {
@@ -26,7 +25,7 @@ func (gb GossipBalance) String() string {
 //proximity ping
 
 type ProximityPingRequest struct {
-	From fleetdb.ID
+	From ids.ID
 	TimeSent int64
 }
 
@@ -35,7 +34,7 @@ func (ppr ProximityPingRequest) String() string {
 }
 
 type ProximityPingResponse struct {
-	From fleetdb.ID
+	From ids.ID
 	TimeSent int64
 }
 

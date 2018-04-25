@@ -3,8 +3,9 @@ package wpaxos
 import (
 	"encoding/gob"
 	"fmt"
-
 	"github.com/acharapko/fleetdb"
+	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/ids"
 )
 
 func init() {
@@ -25,19 +26,20 @@ func init() {
 
 // Prepare phase 1a
 type Prepare struct {
-	Key fleetdb.Key
-	Ballot fleetdb.Ballot
-	txTime int64
+	Key 	key_value.Key
+	Table	string
+	Ballot  Ballot
+	txTime 	int64
 	Try 	int
 }
 
 func (p Prepare) String() string {
-	return fmt.Sprintf("Prepare {Key=%v, bal=%v, Try=%d, txtime=%v}", string(p.Key), p.Ballot, p.Try, p.txTime)
+	return fmt.Sprintf("Prepare {Key=%v, Table=%s, bal=%v, Try=%d, txtime=%v}", string(p.Key), p.Table, p.Ballot, p.Try, p.txTime)
 }
 
 type CommandBallot struct {
-	Command 	fleetdb.Command
-	Ballot  	fleetdb.Ballot
+	Command 	key_value.Command
+	Ballot  	Ballot
 	Executed	bool
 	Committed	bool
 	HasTx		bool
@@ -50,36 +52,36 @@ func (cb CommandBallot) String() string {
 
 // Promise phase 1b
 type Promise struct {
-	Key 		fleetdb.Key
-	Ballot 		fleetdb.Ballot
-	ID     		fleetdb.ID               // from node id
+	Key 		key_value.Key
+	Table		string
+	Ballot 		Ballot
+	ID     		ids.ID               // from node id
 	LPF	   		bool					//Lease Promise Failure
 	Try 		int
 	Log    		map[int]CommandBallot // log since last execute (includes last execute)
 }
 
 func (p Promise) String() string {
-	return fmt.Sprintf("Promise {Key=%v, bal=%v, try=%d, id=%v, lpf=%t, log=%v}", string(p.Key), p.Ballot, p.Try, p.ID, p.LPF, p.Log)
+	return fmt.Sprintf("Promise {Key=%v, Table=%s, bal=%v, try=%d, id=%v, lpf=%t, log=%v}", string(p.Key), p.Table, p.Ballot, p.Try, p.ID, p.LPF, p.Log)
 }
 
 // Accept phase 2a
 type Accept struct {
-	Key 		fleetdb.Key
-	Ballot  	fleetdb.Ballot
+	Ballot  	Ballot
 	Slot    	int
 	EpochSlot 	int
-	Command 	fleetdb.Command
+	Command 	key_value.Command
 	txtime 		int64
 }
 
 func (a Accept) String() string {
-	return fmt.Sprintf("Accept {Key=%v, bal=%v, Slot=%v, EpochSlot=%v, Cmd=%v, txtime=%d}", string(a.Key), a.Ballot, a.Slot, a.EpochSlot, a.Command, a.txtime)
+	return fmt.Sprintf("Accept {Key=%v, bal=%v, Slot=%v, EpochSlot=%v, Cmd=%v, txtime=%d}", string(a.Command.Key), a.Ballot, a.Slot, a.EpochSlot, a.Command, a.txtime)
 }
 
 // Accept phase 2a for TX
 type AcceptTX struct {
-	TxID fleetdb.TXID
-	LeaderID fleetdb.ID
+	TxID ids.TXID
+	LeaderID ids.ID
 	P2as []Accept
 }
 
@@ -89,19 +91,20 @@ func (a AcceptTX) String() string {
 
 // Accepted phase 2b
 type Accepted struct {
-	Key fleetdb.Key
-	Ballot fleetdb.Ballot
-	ID     fleetdb.ID // from node id
-	Slot   int
+	Table	string
+	Key 	key_value.Key
+	Ballot 	Ballot
+	ID     	ids.ID // from node id
+	Slot   	int
 }
 
 func (a Accepted) String() string {
-	return fmt.Sprintf("Accepted {Key=%v, bal=%v, Slot=%v, ID=%v}", string(a.Key), a.Ballot, a.Slot, a.ID)
+	return fmt.Sprintf("Accepted {Table=%s, Key=%v, bal=%v, Slot=%v, ID=%v}", a.Table, string(a.Key), a.Ballot, a.Slot, a.ID)
 }
 
 // Accepted phase 2b
 type AcceptedTX struct {
-	TxID fleetdb.TXID
+	TxID ids.TXID
 	P2bs []Accepted
 }
 
@@ -111,18 +114,17 @@ func (a AcceptedTX) String() string {
 
 // Commit phase 3
 type Commit struct {
-	Key fleetdb.Key
 	Slot    int
-	Command fleetdb.Command
+	Command key_value.Command
 }
 
 func (c Commit) String() string {
-	return fmt.Sprintf("Commit {Key=%v, Slot=%v, cmd=%v}", string(c.Key), c.Slot, c.Command)
+	return fmt.Sprintf("Commit {Key=%v, Slot=%v, cmd=%v}", string(c.Command.Key), c.Slot, c.Command)
 }
 
 // Commit phase 3
 type CommitTX struct {
-	fleetdb.TXID
+	ids.TXID
 	P3s []Commit
 
 }
@@ -134,14 +136,15 @@ func (c CommitTX) String() string {
 
 // LeaderChange switch leader
 type LeaderChange struct {
-	Key    fleetdb.Key
-	To     fleetdb.ID
-	From   fleetdb.ID
-	Ballot fleetdb.Ballot
+	Key    key_value.Key
+	Table  string
+	To     ids.ID
+	From   ids.ID
+	Ballot Ballot
 }
 
 func (l LeaderChange) String() string {
-	return fmt.Sprintf("LeaderChange {Key=%d, from=%s, to=%s, bal=%d}", string(l.Key), l.From, l.To, l.Ballot)
+	return fmt.Sprintf("LeaderChange {Key=%s, Table=%s, from=%s, to=%s, bal=%d}", string(l.Key), l.Table, l.From, l.To, l.Ballot)
 }
 
 // Load Gossip

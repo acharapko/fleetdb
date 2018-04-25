@@ -1,4 +1,4 @@
-package fleetdb
+package netwrk
 
 import (
 	"encoding/gob"

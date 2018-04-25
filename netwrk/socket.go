@@ -1,11 +1,15 @@
-package fleetdb
+package netwrk
 
-import "github.com/acharapko/fleetdb/log"
+import (
+	"github.com/acharapko/fleetdb/log"
+	"github.com/acharapko/fleetdb/ids"
+	"github.com/acharapko/fleetdb/utils/hlc"
+)
 
 type Socket interface {
 
 	// Send put msg to outbound queue
-	Send(to ID, msg interface{})
+	Send(to ids.ID, msg interface{})
 
 	// Multicast send msg to all nodes in the same site
 	Multicast(zone int, msg interface{})
@@ -26,15 +30,15 @@ type Socket interface {
 }
 
 type socket struct {
-	id    ID
-	nodes map[ID]Transport
+	id    ids.ID
+	nodes map[ids.ID]Transport
 	codec Codec
 }
 
-func NewSocket(id ID, addrs map[ID]string, transport, codec string) Socket {
+func NewSocket(id ids.ID, addrs map[ids.ID]string, transport, codec string) Socket {
 	socket := new(socket)
 	socket.id = id
-	socket.nodes = make(map[ID]Transport)
+	socket.nodes = make(map[ids.ID]Transport)
 	socket.codec = NewCodec(codec)
 
 	socket.nodes[id] = NewTransport(transport + "://" + addrs[id])
@@ -60,13 +64,13 @@ func (sock *socket) GetReplicationGroupZones(zone int) []int {
 	return z
 }
 
-func (sock *socket) Send(to ID, msg interface{}) {
-	hlcTime := HLClock.Now()
+func (sock *socket) Send(to ids.ID, msg interface{}) {
+	hlcTime := hlc.HLClock.Now()
 	hdr := MsgHeader{HLCTime:hlcTime}
 	sock.SendWithHeader(to, msg, hdr)
 }
 
-func (sock *socket) SendWithHeader(to ID, msg interface{}, header MsgHeader) {
+func (sock *socket) SendWithHeader(to ids.ID, msg interface{}, header MsgHeader) {
 	t, ok := sock.nodes[to]
 	if !ok {
 		log.Fatalf("transport of ID %v does not exists", to)
@@ -84,12 +88,12 @@ func (sock *socket) Recv() interface{} {
 	msg := sock.codec.Decode(m.Body)
 	hdr := NewMsgHeaderFromBytes(m.Header)
 	//log.Debugf("RECVD MSG HEADER : %v\n", hdr)
-	HLClock.Update(hdr.HLCTime)
+	hlc.HLClock.Update(hdr.HLCTime)
 	return msg
 }
 
 func (sock *socket) Multicast(zone int, msg interface{}) {
-	hlcTime := HLClock.Now()
+	hlcTime := hlc.HLClock.Now()
 	hdr := MsgHeader{HLCTime:hlcTime}
 	for id := range sock.nodes {
 		if id == sock.id {
@@ -102,7 +106,7 @@ func (sock *socket) Multicast(zone int, msg interface{}) {
 }
 
 func (sock *socket) RBroadcast(zone int, msg interface{}) {
-	hlcTime := HLClock.Now()
+	hlcTime := hlc.HLClock.Now()
 	hdr := MsgHeader{HLCTime:hlcTime}
 	zones := sock.GetReplicationGroupZones(zone)
 	log.Debugf("RBroadcast to zones: %v\n", zones)
@@ -119,7 +123,7 @@ func (sock *socket) RBroadcast(zone int, msg interface{}) {
 }
 
 func (sock *socket) Broadcast(msg interface{}) {
-	hlcTime := HLClock.Now()
+	hlcTime := hlc.HLClock.Now()
 	hdr := MsgHeader{HLCTime:hlcTime}
 	for id := range sock.nodes {
 		if id == sock.id {

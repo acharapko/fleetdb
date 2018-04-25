@@ -15,80 +15,62 @@ import (
 	"github.com/acharapko/fleetdb/utils/hlc"
 	"time"
 	"sync/atomic"
+	"strings"
+	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/ids"
+	"github.com/acharapko/fleetdb/netwrk"
+	"github.com/acharapko/fleetdb/config"
 )
 
 var (
-	// NumZones total number of sites
-	NumZones int
-	// NumNodes total number of nodes
-	NumNodes int
-	// NumLocalNodes number of nodes per site
-	NumLocalNodes int
-	// F number of zone failures
-	F int
-	// QuorumType name of the quorums
-	QuorumType string
-
-	//Used for Object Hnadowver decisions
+	//Used for Object Handover decisions
 	HandoverN int
 	HandoverInterval int
-
-	//HLC
-	HLClock *hlc.HLC
 )
 
 // Node is the primary access point for every replica
 // it includes networking, state machine and RESTful API server
 type Node interface {
-	Socket
-	Store
-	ID() ID
-	Config() Config
+	netwrk.Socket
+	key_value.Store
+	ID() ids.ID
+	Config() config.Config
 	Run()
 	Retry(r Request)
-	Forward(id ID, r Request)
+	Forward(id ids.ID, r Request)
 	Register(m interface{}, f interface{})
-	GetTX(txid TXID) *Transaction
+	GetTX(txid ids.TXID) *Transaction
 	//ExecTx(txid TXID, key Key, tx *Transaction) bool
 }
 
 // node implements Node interface
 type node struct {
-	id     ID
-	config Config
+	id     ids.ID
+	config config.Config
 
 	txCount int32
 
-	Socket
-	Store
+	netwrk.Socket
+	key_value.Store
 	MessageChan chan interface{}
 	handles     map[string]reflect.Value
 }
 
 // NewNode creates a new Node object from configuration
-func NewNode(config Config) Node {
+func NewNode(config config.Config) Node {
 	node := new(node)
 	node.id = config.ID
 	node.config = config
 
-	node.Socket = NewSocket(config.ID, config.Addrs, config.Transport, config.Codec)
-	node.Store = NewStore(config)
+	node.Socket = netwrk.NewSocket(config.ID, config.Addrs, config.Transport, config.Codec)
+	node.Store = key_value.NewStore(config)
 	node.MessageChan = make(chan interface{}, config.ChanBufferSize)
 	node.handles = make(map[string]reflect.Value)
 
-	zones := make(map[int]int)
-	for id := range config.Addrs {
-		zones[id.Zone()]++
-	}
-
-	NumZones = len(zones)
-	NumNodes = len(config.Addrs)
-	HandoverN = config.handoverN
+	HandoverN = config.HandoverN
 	HandoverInterval = config.Interval
-	NumLocalNodes = zones[config.ID.Zone()]
-	F = config.F
-	QuorumType = config.Quorum
-	HLClock = hlc.NewHLC(time.Now().Unix())
+
+	hlc.HLClock = hlc.NewHLC(time.Now().Unix())
 	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = config.MaxIdleCnx
 	return node
 }
@@ -99,16 +81,17 @@ func NewNode(config Config) Node {
 	return false
 }*/
 
-func (n *node) GetTX(txid TXID) *Transaction {
+func (n *node) GetTX(txid ids.TXID) *Transaction {
 	//do nothing
+	log.Debug("Poop!")
 	return nil
 }
 
-func (n *node) ID() ID {
+func (n *node) ID() ids.ID {
 	return n.id
 }
 
-func (n *node) Config() Config {
+func (n *node) Config() config.Config {
 	return n.config
 }
 
@@ -140,15 +123,23 @@ func (n *node) serveRequest(r *http.Request, w http.ResponseWriter) {
 
 	var req Request
 	req.C = make(chan Reply)
-	clientID := ID(r.Header.Get("id"))
+	clientID := ids.ID(r.Header.Get("id"))
 	cid, _ := strconv.Atoi(r.Header.Get("cid"))
-	commandID := CommandID(cid)
+	commandID := ids.CommandID(cid)
 	req.Timestamp, _ = strconv.ParseInt(r.Header.Get("timestamp"), 10, 64)
 
-	key := []byte((r.URL.Path[1:]))
+	url := []byte((r.URL.Path[1:]))
+	urlStr := string(url)
+	log.Debugf("URL: %s", urlStr)
+	urlParts := strings.Split(urlStr, "/")
+	table := urlParts[0]
+
+	key := []byte((r.URL.Path[len(table) + 2:]))
+	log.Debugf("TABLE: " + table)
+	log.Debugf("KEY: " + string(key))
 	switch r.Method {
 	case http.MethodGet:
-		req.Command = Command{key, nil, clientID, commandID, GET}
+		req.Command = key_value.Command{table,key, nil, clientID, commandID, key_value.GET}
 	case http.MethodPut, http.MethodPost:
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
@@ -156,9 +147,9 @@ func (n *node) serveRequest(r *http.Request, w http.ResponseWriter) {
 			http.Error(w, "cannot read body", http.StatusBadRequest)
 			return
 		}
-		req.Command = Command{key, Value(body), clientID, commandID, PUT}
+		req.Command = key_value.Command{"test", key, key_value.Value(body), clientID, commandID, key_value.PUT}
 	case http.MethodDelete:
-		req.Command = Command{key, nil, clientID, commandID, DELETE}
+		req.Command = key_value.Command{"test", key, nil, clientID, commandID, key_value.DELETE}
 	}
 
 	n.MessageChan <- req
@@ -166,8 +157,8 @@ func (n *node) serveRequest(r *http.Request, w http.ResponseWriter) {
 	reply := <-req.C
 
 	if reply.Err != nil {
-		if r.Method == http.MethodGet && reply.Err == ErrNotFound {
-			http.Error(w, ErrNotFound.Error(), http.StatusNotFound)
+		if r.Method == http.MethodGet && reply.Err == key_value.ErrNotFound {
+			http.Error(w, key_value.ErrNotFound.Error(), http.StatusNotFound)
 		} else {
 			http.Error(w, reply.Err.Error(), http.StatusInternalServerError)
 		}
@@ -199,9 +190,9 @@ func (n *node) serveTransaction(r *http.Request, w http.ResponseWriter) {
 	}
 
 	json.Unmarshal(body, &tx)
-	tx.Timestamp = HLClock.Now().ToInt64()
+	tx.Timestamp = hlc.HLClock.Now().ToInt64()
 	txc := atomic.AddInt32(&n.txCount, 1)
-	tx.TxID = NewTXID(n.ID().Zone(), n.ID().Node(), int(txc))
+	tx.TxID = ids.NewTXID(n.ID().Zone(), n.ID().Node(), int(txc))
 	log.Debugf("Adding Tx to Message Chan TX %v {body=%v}\n", tx, body)
 	n.MessageChan <- tx
 
@@ -270,18 +261,19 @@ func (n *node) handle() {
 
 
 
-func (n *node) ForwardTx(id ID, tx Transaction) {
+func (n *node) ForwardTx(id ids.ID, tx Transaction) {
 	//key := m.Command.Key
 	//url := n.config.HTTPAddrs[id] + "/" + string(key)
 }
 
-func (n *node) Forward(id ID, m Request) {
+func (n *node) Forward(id ids.ID, m Request) {
 	key := m.Command.Key
-	url := n.config.HTTPAddrs[id] + "/" + string(key)
+	table := m.Command.Table
+	url := n.config.HTTPAddrs[id] + "/"+ table + "/" + string(key)
 
 	log.Debugf("Node %v forwarding request %v to %s", n.ID(), m, url)
 	switch m.Command.Operation {
-	case GET:
+	case key_value.GET:
 		req, err := http.NewRequest(http.MethodGet, url, nil)
 		if err != nil {
 			log.Errorln(err)
@@ -306,13 +298,13 @@ func (n *node) Forward(id ID, m Request) {
 		if rep.StatusCode == http.StatusOK {
 			b, _ := ioutil.ReadAll(rep.Body)
 			cmd := m.Command
-			cmd.Value = Value(b)
+			cmd.Value = key_value.Value(b)
 			m.Reply(Reply{
 				Command:   cmd,
-				Value: Value(b),
+				Value: key_value.Value(b),
 			})
 		}
-	case PUT:
+	case key_value.PUT:
 		req, err := http.NewRequest(http.MethodPut, url, bytes.NewBuffer(m.Command.Value))
 		if err != nil {
 			log.Errorln(err)
@@ -339,7 +331,7 @@ func (n *node) Forward(id ID, m Request) {
 				Command:m.Command,
 			})
 		}
-	case DELETE:
+	case key_value.DELETE:
 		req, err := http.NewRequest(http.MethodDelete, url, nil)
 		if err != nil {
 			log.Errorln(err)

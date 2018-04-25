@@ -1,12 +1,12 @@
-package fleetdb
+package key_value
 
 import (
 	"errors"
 	"sync"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/acharapko/fleetdb/log"
-	"encoding/base64"
 	"strconv"
+	"github.com/acharapko/fleetdb/config"
 )
 
 var (
@@ -17,34 +17,6 @@ var (
 	ErrStoreDelError = errors.New("LevelDB error during Delete operation")
 )
 
-type Value []byte
-
-type Key []byte
-
-func (k Key) B64() (string){
-	return base64.StdEncoding.EncodeToString(k)
-}
-
-func (k Key) Bucket(numBuckets int) int {
-	var tempByte byte;
-
-	for _, b := range k {
-		tempByte = tempByte ^ b
-	}
-	bucket := int(tempByte) % numBuckets
-	return bucket
-}
-
-func KeyFromB64(k string) Key {
-	kb, err := base64.StdEncoding.DecodeString(k)
-
-	if err == nil {
-		return kb
-	}
-	return nil
-}
-
-
 // StateMachine interface provides execution of command against database
 // the implementation should be thread safe
 type Store interface {
@@ -53,31 +25,43 @@ type Store interface {
 
 // database maintains the key-value datastore
 type database struct {
-	lock *sync.RWMutex
-	// data  map[Keys]map[Version]Value
-	leveldb []*leveldb.DB
-	//sync.RWMutex
+	lock 		*sync.RWMutex
+	leveldbs    map[string] []*leveldb.DB  // map of leveldb shards
+	cfg 		config.Config
 }
 
 // NewStore get the instance of LevelDB Wrapper
-func NewStore(config Config) Store {
+func NewStore(config config.Config) Store {
 	db := new(database)
 	db.lock = new(sync.RWMutex)
-	for i, dir := range config.LevelDBDir {
-		lvlDBName := dir + "/" + strconv.Itoa(config.ID.Zone()) + "." + strconv.Itoa(config.ID.Node())+ "." + strconv.Itoa(i)
-		lvldb, err := leveldb.OpenFile(lvlDBName,nil)
-		if err != nil {
-			log.Fatal("Error opening LevelDB store: " + lvlDBName)
-		}
-		db.leveldb = append(db.leveldb, lvldb)
-	}
+	db.cfg = config
+	db.leveldbs = make(map[string] []*leveldb.DB)
 	return db
+}
+
+func (db *database) getStore(name string) []*leveldb.DB{
+	storedbs := db.leveldbs[name]
+	if storedbs == nil {
+		storedbs = make([]*leveldb.DB, 0)
+		for i, dir := range db.cfg.LevelDBDir {
+			lvlDBName := dir + "/" + name + "/" + strconv.Itoa(db.cfg.ID.Zone()) + "." + strconv.Itoa(db.cfg.ID.Node())+ "." + strconv.Itoa(i)
+			lvldb, err := leveldb.OpenFile(lvlDBName,nil)
+			if err != nil {
+				log.Fatal("Error opening LevelDB store: " + lvlDBName)
+			}
+			storedbs = append(storedbs, lvldb)
+		}
+		db.leveldbs[name] = storedbs;
+	}
+	return storedbs
+
 }
 
 
 func (db *database) Execute(c Command) (Value, error) {
 	//log.Debugf("Executing Command %v\n", c)
-	lvldb := db.leveldb[c.Key.Bucket(len(db.leveldb))]
+	storedbs := db.getStore(c.Table)
+	lvldb := storedbs[c.Key.Bucket(len(storedbs))]
 	switch c.Operation {
 	case PUT:
 		db.lock.Lock()

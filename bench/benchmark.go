@@ -2,10 +2,12 @@ package main
 
 import (
 	"flag"
-
 	"github.com/acharapko/fleetdb"
 	"github.com/acharapko/fleetdb/log"
+	"github.com/acharapko/fleetdb/key_value"
 	"strconv"
+	"github.com/acharapko/fleetdb/ids"
+	"github.com/acharapko/fleetdb/config"
 )
 
 var master = flag.String("master", "", "Master address.")
@@ -23,51 +25,52 @@ func (d *db) Stop() {
 	d.c.Stop()
 }
 
-func (d *db) Read(k int) fleetdb.Value {
+func (d *db) Read(k int) key_value.Value {
 	key := []byte(strconv.Itoa(k))
-	v := d.c.Get(fleetdb.Key(key))
+	v := d.c.Get(key_value.Key(key), "test")
 	return v
 }
 
 func (d *db) Write(k int, v []byte) {
 	key := []byte(strconv.Itoa(k))
-	d.c.Put(fleetdb.Key(key), fleetdb.Value(v))
+	d.c.Put(key_value.Key(key), key_value.Value(v), "test")
 }
 
 func (d *db) WriteStr(k int, v string) {
 	d.Write(k, []byte(v))
 }
 
-func (d *db) TxWrite(ks []int, v []fleetdb.Value) {
-	bkeys := make([]fleetdb.Key, len(ks))
-	vals := make([]fleetdb.Value, len(ks))
-
+func (d *db) TxWrite(ks []int, v []key_value.Value) {
+	bkeys := make([]key_value.Key, len(ks))
+	vals := make([]key_value.Value, len(ks))
+	tbls := make([]string, len(ks))
 	for i, k := range ks {
 		key := []byte(strconv.Itoa(k))
 		vals[i] = v[i]
-		bkeys[i] = fleetdb.Key(key)
+		bkeys[i] = key_value.Key(key)
+		tbls[i] = "test"
 	}
 
-	d.c.PutTx(bkeys, vals)
+	d.c.PutTx(bkeys, vals, tbls)
 
 }
 
 func main() {
 	flag.Parse()
 
-	id := fleetdb.GetID()
+	id := ids.GetID()
 
-	var config fleetdb.Config
+	var cfg config.Config
 	if *master == "" {
-		config = fleetdb.NewConfig(id)
+		cfg = config.NewConfig(id)
 		log.Infof("Starting Benchmark %s \n", id)
 	} else {
-		config = fleetdb.ConnectToMaster(*master, true, id)
-		log.Infof("Received config %s\n", config)
+		cfg = config.ConnectToMaster(*master, true, id)
+		log.Infof("Received config %s\n", cfg)
 	}
 
 	d := new(db)
-	d.c = fleetdb.NewClient(config)
+	d.c = fleetdb.NewClient(cfg)
 
 	b := fleetdb.NewBenchmarker(d)
 	b.Load()

@@ -1,4 +1,4 @@
-package fleetdb
+package netwrk
 
 import "testing"
 import "encoding/gob"

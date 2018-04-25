@@ -1,4 +1,4 @@
-package fleetdb
+package wpaxos
 
 import (
 	"testing"

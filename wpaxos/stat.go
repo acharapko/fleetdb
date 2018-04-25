@@ -1,40 +1,41 @@
-package db
+package wpaxos
 
 import (
 	"time"
-
 	"github.com/acharapko/fleetdb"
 	"github.com/acharapko/fleetdb/log"
+	"github.com/acharapko/fleetdb/ids"
 )
 
 type hitstat interface {
-	Hit(id fleetdb.ID, lt int64) fleetdb.ID
-	HitWeight(id fleetdb.ID, weight int, lt int64) fleetdb.ID
+	Hit(id ids.ID, lt int64) ids.ID
+	HitWeight(id ids.ID, weight int, lt int64) ids.ID
 	Reset()
-	CalcDestination() fleetdb.ID
+	CalcDestination() ids.ID
 	LastReqTime() int64
 	Evicting() bool
-	MarkEvecting()
+	MarkEvicting()
 }
 
-// stat of access history in previous interval time
-type stat struct {
-	hits     map[fleetdb.ID]int
+// keystat of access history in previous interval time
+type keystat struct {
+	hits     map[ids.ID]int
 	time     time.Time // last start time
 	LastReqT int64 //last op timestamp
 	evicting bool
 	sum      int       // total hits in current interval
 }
 
-func newStat() *stat {
-	return &stat{
-		hits:     make(map[fleetdb.ID]int),
+func NewStat() *keystat {
+	return &keystat{
+		hits:     make(map[ids.ID]int),
 		time:     time.Now(),
 	}
 }
 
 // hit record access id and return the
-func (s *stat) CalcDestination() fleetdb.ID {
+func (s *keystat) CalcDestination() ids.ID {
+
 	for id, n := range s.hits {
 		if n > s.sum / 2 {
 			// TODO should we reset for every interval?
@@ -49,27 +50,27 @@ func (s *stat) CalcDestination() fleetdb.ID {
 
 
 // total hits per second truncated to an int
-/*func (s *stat) TotalHitsPerSec() int {
+/*func (s *keystat) TotalHitsPerSec() int {
 	ts := time.Since(s.time)
 	thps := float64(s.sum) / ts.Seconds()
 	//log.Debugf("s.sum = %d, ts.sec =%f\n", s.sum, ts.Seconds())
 	return int(thps)
 }*/
 
-func (s *stat) LastReqTime() int64 {
+func (s *keystat) LastReqTime() int64 {
 	return s.LastReqT
 }
 
-func (s *stat) Evicting() bool {
+func (s *keystat) Evicting() bool {
 	return s.evicting
 }
 
-func (s *stat) MarkEvecting() {
+func (s *keystat) MarkEvicting() {
 	s.evicting = true
 }
 
 // hit record access id and return the
-func (s *stat) Hit(id fleetdb.ID, lt int64) fleetdb.ID {
+func (s *keystat) Hit(id ids.ID, lt int64) ids.ID {
 	s.hits[id]++
 	s.sum++
 	s.LastReqT = lt
@@ -87,7 +88,7 @@ func (s *stat) Hit(id fleetdb.ID, lt int64) fleetdb.ID {
 }
 
 // hit record access id and return the
-func (s *stat) HitWeight(id fleetdb.ID, weight int, lt int64) fleetdb.ID {
+func (s *keystat) HitWeight(id ids.ID, weight int, lt int64) ids.ID {
 	s.hits[id] += weight
 	s.sum += weight
 	s.LastReqT = lt
@@ -97,8 +98,8 @@ func (s *stat) HitWeight(id fleetdb.ID, weight int, lt int64) fleetdb.ID {
 	return ""
 }
 
-func (s *stat) Reset() {
-	s.hits = make(map[fleetdb.ID]int)
+func (s *keystat) Reset() {
+	s.hits = make(map[ids.ID]int)
 	s.sum = 0
 	s.evicting = false
 	s.time = time.Now()

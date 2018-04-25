@@ -5,11 +5,14 @@ import (
 	"bufio"
 	"math/rand"
 
-	"github.com/acharapko/fleetdb"
 	"fmt"
 	"os"
 	"strings"
 	"strconv"
+	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/ids"
+	"github.com/acharapko/fleetdb/config"
+	"github.com/acharapko/fleetdb"
 )
 
 // db implements db.DB interface for Client
@@ -20,12 +23,12 @@ type consoleClient struct {
 func main() {
 	flag.Parse()
 
-	id := fleetdb.GetID()
+	id := ids.GetID()
 
-	var config fleetdb.Config
-	config = fleetdb.NewConfig(id)
+	var cfg config.Config
+	cfg = config.NewConfig(id)
 	cc := new(consoleClient)
-	cc.client = fleetdb.NewClient(config)
+	cc.client = fleetdb.NewClient(cfg)
 
 	fmt.Printf("Welcome to fleetdb Console. Home Node is %v\n", id)
 	cc.RunConsole()
@@ -46,7 +49,7 @@ func (cc *consoleClient) generateRandVal(n int) []byte {
 func (cc *consoleClient) putKeys(fromK, toK, n int) {
 	for k := fromK; k <= toK; k++ {
 		v := cc.generateRandVal(n)
-		cc.client.Put(fleetdb.Key([]byte(strconv.Itoa(k))), v)
+		cc.client.Put(key_value.Key([]byte(strconv.Itoa(k))), v, "test")
 	}
 }
 
@@ -91,7 +94,7 @@ func (cc *consoleClient) RunConsole() {
 					if len(parts) >= 3 {
 						val := strings.Join(parts[2:len(parts)], " ")
 						fmt.Println(keyStr + " -> " + val)
-						cc.client.Put(fleetdb.Key([]byte(keyStr)), []byte(val))
+						cc.client.Put(key_value.Key([]byte(keyStr)), []byte(val), "test")
 					} else {
 						fmt.Println("Put command error. Must be in format: put key value")
 					}
@@ -99,16 +102,18 @@ func (cc *consoleClient) RunConsole() {
 					if len(parts) >= 3 {
 						numK := (len(parts) - 1) / 2
 
-						keys := make([]fleetdb.Key, numK)
-						vals := make([]fleetdb.Value, numK)
+						keys := make([]key_value.Key, numK)
+						vals := make([]key_value.Value, numK)
+						tbls := make([]string, numK)
 						for i := 1; i < len(parts); i+=2 {
 							keyStr := parts[i]
 							val := parts[i+1]
 							fmt.Println(keyStr + " -> " + val)
-							keys[(i-1) / 2] = fleetdb.Key([]byte(keyStr))
-							vals[(i-1) / 2] = fleetdb.Value([]byte(val))
+							keys[(i-1) / 2] = key_value.Key([]byte(keyStr))
+							vals[(i-1) / 2] = key_value.Value([]byte(val))
+							tbls[(i-1) / 2] = "test"
 						}
-						cc.client.PutTx(keys, vals)
+						cc.client.PutTx(keys, vals, tbls)
 					} else {
 						fmt.Println("Puttx command error. Must be in format: puttx key value ...")
 					}
@@ -117,22 +122,22 @@ func (cc *consoleClient) RunConsole() {
 						val := parts[2]
 						key2 := parts[3]
 						fmt.Println(keyStr + " -> " + val)
-						keys := make([]fleetdb.Key, 2)
-						vals := make([]fleetdb.Value, 1)
-						keys[0] = fleetdb.Key([]byte(keyStr))
-						keys[1] = fleetdb.Key([]byte(key2))
+						keys := make([]key_value.Key, 2)
+						vals := make([]key_value.Value, 1)
+						keys[0] = key_value.Key([]byte(keyStr))
+						keys[1] = key_value.Key([]byte(key2))
 						cc.client.PrepTx()
-						vals[0] = fleetdb.Value([]byte(val))
-						cc.client.AddTxPut(keys[0], vals[0])
-						cc.client.AddTxGet(keys[1])
+						vals[0] = key_value.Value([]byte(val))
+						cc.client.AddTxPut(keys[0], vals[0], "test")
+						cc.client.AddTxGet(keys[1], "test")
 						cc.client.SendTX()
 					} else {
 						fmt.Println("Puttx command error. Must be in format: puttx key value ...")
 					}
 				case "delete":
-					cc.client.Delete(fleetdb.Key([]byte(keyStr)))
+					cc.client.Delete(key_value.Key([]byte(keyStr)), "test")
 				case "get":
-					retVal := cc.client.Get(fleetdb.Key([]byte(keyStr)))
+					retVal := cc.client.Get(key_value.Key([]byte(keyStr)), "test")
 					retValStr := string(retVal)
 					fmt.Println(retValStr)
 				}

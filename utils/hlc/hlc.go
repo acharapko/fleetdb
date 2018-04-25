@@ -5,6 +5,11 @@ import (
 	"time"
 )
 
+var (
+	//HLC
+	HLClock *HLC
+)
+
 type HLC struct {
 	lastWallTime	int64
 	currentHLC		*Timestamp

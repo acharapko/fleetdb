@@ -1,4 +1,4 @@
-package fleetdb
+package netwrk
 
 import (
 	"bytes"
@@ -184,7 +184,7 @@ func (c *channel) Dial() error {
 func (c *channel) Listen() {
 	chansLock.Lock()
 	defer chansLock.Unlock()
-	chans[c.uri.Host] = make(chan *Message, CHAN_BUFFER_SIZE)
+	chans[c.uri.Host] = make(chan *Message, 1024)//TODO: CHAN_BUFFER_SIZE instead of hardcoded value
 	go func(conn <-chan *Message) {
 		for {
 			select {

@@ -1,4 +1,4 @@
-package fleetdb
+package config
 
 import (
 	"reflect"

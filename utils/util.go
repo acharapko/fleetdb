@@ -1,12 +1,7 @@
-package fleetdb
+package utils
 
 import (
-	"encoding/gob"
-	"net"
-	"strconv"
 	"time"
-
-	"github.com/acharapko/fleetdb/log"
 )
 
 // Max of two int
@@ -52,27 +47,6 @@ func Schedule(what func(), delay time.Duration) chan bool {
 	}()
 
 	return stop
-}
-
-func ConnectToMaster(addr string, client bool, id ID) Config {
-	conn, err := net.Dial("tcp", addr+":"+strconv.Itoa(PORT))
-	if err != nil {
-		log.Fatalln(err)
-	}
-	dec := gob.NewDecoder(conn)
-	enc := gob.NewEncoder(conn)
-	msg := &Register{
-		Client: client,
-		ID:     id,
-		Addr:   "",
-	}
-	enc.Encode(msg)
-	var config Config
-	err = dec.Decode(&config)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	return config
 }
 
 func IntInSlice(needle int, haystack []int) bool {
