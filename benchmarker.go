@@ -103,6 +103,7 @@ type Benchmarker struct {
 	bconfig
 	*History
 
+	cmdCount int
 	cwait   sync.WaitGroup  // wait for all clients to finish
 	latency []time.Duration // latency per operation for each round
 	zipf    *rand.Zipf
@@ -113,6 +114,7 @@ func NewBenchmarker(db DB) *Benchmarker {
 	b.db = db
 	b.bconfig = NewBenchmarkConfig()
 	b.History = NewHistory()
+	b.cmdCount = 0
 	return b
 }
 
@@ -164,7 +166,8 @@ func (b *Benchmarker) Run() {
 	stat.WriteFile("latency")
 	t := end_time.Sub(start_time)
 	log.Infof("Benchmark took %v\n", t)
-	log.Infof("Throughput %f\n", float64(len(b.latency))/t.Seconds())
+	log.Infof("Throughput (req/sec) %f\n", float64(len(b.latency))/t.Seconds())
+	log.Infof("Throughput (Cmds/sec) %f\n", float64(b.cmdCount)/t.Seconds())
 	log.Infoln(stat)
 
 	if b.LinearizabilityCheck {
@@ -218,9 +221,11 @@ func (b *Benchmarker) worker(keys <-chan int, results chan<- time.Duration) {
 	for k := range keys {
 		var s time.Time
 		var e time.Time
+		cmdCount := 1
 		if rand.Intn(100) < b.W {
 
 			if rand.Intn(100) < b.TW {
+				cmdCount = b.TXS
 				keys := make([]int, b.TXS)
 				vals := make([]key_value.Value, b.TXS)
 
@@ -245,9 +250,9 @@ func (b *Benchmarker) worker(keys <-chan int, results chan<- time.Duration) {
 				for i := 0; i < b.TXS; i++ {
 					vals[i] = b.generateRandVal()
 				}
-
+				s = time.Now()
 				b.db.TxWrite(keys, vals)
-
+				e = time.Now()
 			} else {
 				v := b.generateRandVal()
 				s = time.Now()
@@ -262,6 +267,7 @@ func (b *Benchmarker) worker(keys <-chan int, results chan<- time.Duration) {
 			b.History.Add(k, nil, v, s.UnixNano(), e.UnixNano())
 		}
 		t := e.Sub(s)
+		b.cmdCount += cmdCount
 		results <- t
 	}
 }
