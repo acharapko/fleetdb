@@ -32,5 +32,6 @@
     "tx_lease_duration":500,
     "RS":1,
     "handoverN":5,
+    "migration_majority":0.05,
     "max_idle_connections":100
 }

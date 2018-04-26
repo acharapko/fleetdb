@@ -168,6 +168,7 @@ func (b *Benchmarker) Run() {
 	log.Infof("Benchmark took %v\n", t)
 	log.Infof("Throughput (req/sec) %f\n", float64(len(b.latency))/t.Seconds())
 	log.Infof("Throughput (Cmds/sec) %f\n", float64(b.cmdCount)/t.Seconds())
+	log.Infof("Total Cmds: %d\n", b.cmdCount)
 	log.Infoln(stat)
 
 	if b.LinearizabilityCheck {

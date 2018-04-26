@@ -3,8 +3,8 @@ package wpaxos
 import (
 	"time"
 	"github.com/acharapko/fleetdb"
-	"github.com/acharapko/fleetdb/log"
 	"github.com/acharapko/fleetdb/ids"
+	"math"
 )
 
 type hitstat interface {
@@ -36,15 +36,14 @@ func NewStat() *keystat {
 // hit record access id and return the
 func (s *keystat) CalcDestination() ids.ID {
 
+	threshold := int(math.Ceil(1.0 / float64(NumZones) + Migration_majority) * float64(s.sum))
+
 	for id, n := range s.hits {
-		if n > s.sum / 2 {
-			// TODO should we reset for every interval?
-			log.Debugf("Reset \n")
-			s.Reset()
+		if n >= threshold {
 			return id
 		}
 	}
-	log.Debugf("No Reset \n")
+	s.Reset()
 	return ""
 }
 

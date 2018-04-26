@@ -11,6 +11,9 @@ import (
 	"github.com/acharapko/fleetdb/config"
 )
 
+var (
+	Migration_majority float64
+)
 
 type Replica struct {
 	fleetdb.Node
@@ -50,6 +53,7 @@ func NewReplica(config config.Config) *Replica {
 	NumZones = len(zones)
 	NumNodes = len(config.Addrs)
 	NumLocalNodes = zones[config.ID.Zone()]
+	Migration_majority = config.Migration_maj
 	F = config.F
 	QuorumType = config.Quorum
 
@@ -454,18 +458,6 @@ func (r *Replica) ExecTx(tx *fleetdb.Transaction) {
 }
 
 
-func (r *Replica) processLeaderChange(to ids.ID, p *Paxos) {
-	if to.Zone() != r.ID().Zone() {
-		//we are changing zone.
-		p.Send(to, &LeaderChange{
-			Key:    p.Key,
-			Table:  *p.Table,
-			To:     to,
-			From:   r.ID(),
-			Ballot: p.Ballot(),
-		})
-	}
-}
 
 /* ----------------------------------------------------------------------
  *
