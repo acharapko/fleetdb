@@ -16,6 +16,7 @@ func init() {
 	gob.Register(Accepted{})
 	gob.Register(AcceptedTX{})
 	gob.Register(Commit{})
+	gob.Register(Exec{})
 	gob.Register(CommitTX{})
 	gob.Register(LeaderChange{})
 }
@@ -47,7 +48,7 @@ type CommandBallot struct {
 }
 
 func (cb CommandBallot) String() string {
-	return fmt.Sprintf("c=%v b=%v, exec=%t", cb.Command, cb.Ballot, cb.Executed)
+	return fmt.Sprintf("c=%v b=%v, commited=%t, exec=%t", cb.Command, cb.Ballot, cb.Committed, cb.Executed)
 }
 
 // Promise phase 1b
@@ -114,12 +115,23 @@ func (a AcceptedTX) String() string {
 
 // Commit phase 3
 type Commit struct {
-	Slot    int
+	Slot    	int
 	Command key_value.Command
 }
 
 func (c Commit) String() string {
 	return fmt.Sprintf("Commit {Key=%v, Slot=%v, cmd=%v}", string(c.Command.Key), c.Slot, c.Command)
+}
+
+// Commit phase 3 - outside Q2
+type Exec struct {
+	Slot    	int
+	EpochSlot 	int
+	Command key_value.Command
+}
+
+func (e Exec) String() string {
+	return fmt.Sprintf("Exec {Key=%v, Slot=%v, EpochSlot=%v, cmd=%v}", string(e.Command.Key), e.Slot, e.EpochSlot, e.Command)
 }
 
 // Commit phase 3

@@ -17,7 +17,7 @@ type DB interface {
 	Init()
 	Read(key int) key_value.Value
 	Write(key int, value []byte)
-	TxWrite(key []int, value []key_value.Value)
+	TxWrite(key []int, value []key_value.Value) bool
 	WriteStr(key int, value string)
 
 	Stop()
@@ -223,6 +223,7 @@ func (b *Benchmarker) worker(keys <-chan int, results chan<- time.Duration) {
 		var s time.Time
 		var e time.Time
 		cmdCount := 1
+		opOk := false
 		if rand.Intn(100) < b.W {
 
 			if rand.Intn(100) < b.TW {
@@ -252,7 +253,8 @@ func (b *Benchmarker) worker(keys <-chan int, results chan<- time.Duration) {
 					vals[i] = b.generateRandVal()
 				}
 				s = time.Now()
-				b.db.TxWrite(keys, vals)
+				//TODO: do not count aborted TX
+				opOk = b.db.TxWrite(keys, vals)
 				e = time.Now()
 			} else {
 				v := b.generateRandVal()
@@ -260,16 +262,20 @@ func (b *Benchmarker) worker(keys <-chan int, results chan<- time.Duration) {
 				b.db.Write(k, v)
 				e = time.Now()
 				b.History.Add(k, v, nil, s.UnixNano(), e.UnixNano())
+				opOk = true
 			}
 		} else {
 			s = time.Now()
 			v := b.db.Read(k)
 			e = time.Now()
 			b.History.Add(k, nil, v, s.UnixNano(), e.UnixNano())
+			opOk = true
 		}
-		t := e.Sub(s)
-		b.cmdCount += cmdCount
-		results <- t
+		if opOk {
+			t := e.Sub(s)
+			b.cmdCount += cmdCount
+			results <- t
+		}
 	}
 }
 

@@ -7,6 +7,10 @@ import (
 	"github.com/acharapko/fleetdb/ids"
 )
 
+var (
+	NANOSECONDS_PER_SECOND = int64(1000000000)
+)
+
 type Table struct {
 	TableName 	*string
 	sync.RWMutex
@@ -80,7 +84,7 @@ func (t *Table) HitKey(key key_value.Key, clientID ids.ID, timestamp int64) ids.
 	return t.stats[key.B64()].Hit(clientID, timestamp)
 }
 
-func (t *Table) FindLeastUsedKey() key_value.Key {
+func (t *Table) FindLeastUsedKeyOld() key_value.Key {
 	t.Lock()
 	defer t.Unlock()
 	var lak key_value.Key
@@ -98,8 +102,40 @@ func (t *Table) FindLeastUsedKey() key_value.Key {
 	return lak
 }
 
+func (t *Table) FindLeastUsedKey() key_value.Key {
+	t.Lock()
+	defer t.Unlock()
+	var lak key_value.Key
+	var temp_key key_value.Key
+	timeused := int64(^uint64(0) >> 1) //max int
+	for k, hits := range t.stats {
+		lt := hits.LastReqTime()
+		//log.Debugf("lt = %d \n", lt)
+		if !hits.Evicting() && lt < timeused && lt > NANOSECONDS_PER_SECOND   { //more than one second old
+			temp_key = key_value.KeyFromB64(k)
+			p := t.paxi[temp_key.B64()]
+			if p != nil  {
+				//p.GetAccessToken()
+				hasLease := p.HasTXLease(0)
+				//p.ReleaseAccessToken()
+				if len(p.requests) == 0 && !hasLease {
+					lak = temp_key
+					timeused = lt
+				}
+			}
+
+		}
+
+
+	}
+	return lak
+}
+
 func (t *Table) MarkKeyEvicting(k key_value.Key) {
 	t.Lock()
 	defer t.Unlock()
-	t.stats[k.B64()].MarkEvicting()
+	stat := t.stats[k.B64()]
+	if stat != nil {
+		stat.MarkEvicting()
+	}
 }

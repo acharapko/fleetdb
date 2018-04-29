@@ -130,13 +130,10 @@ func (n *node) serveRequest(r *http.Request, w http.ResponseWriter) {
 
 	url := []byte((r.URL.Path[1:]))
 	urlStr := string(url)
-	log.Debugf("URL: %s", urlStr)
 	urlParts := strings.Split(urlStr, "/")
 	table := urlParts[0]
-
 	key := []byte((r.URL.Path[len(table) + 2:]))
-	log.Debugf("TABLE: " + table)
-	log.Debugf("KEY: " + string(key))
+
 	switch r.Method {
 	case http.MethodGet:
 		req.Command = key_value.Command{table,key, nil, clientID, commandID, key_value.GET}
@@ -193,7 +190,7 @@ func (n *node) serveTransaction(r *http.Request, w http.ResponseWriter) {
 	tx.Timestamp = hlc.HLClock.Now().ToInt64()
 	txc := atomic.AddInt32(&n.txCount, 1)
 	tx.TxID = ids.NewTXID(n.ID().Zone(), n.ID().Node(), int(txc))
-	log.Debugf("Adding Tx to Message Chan TX %v {body=%v}\n", tx, body)
+	log.Debugf("Adding Tx to Message Chan TX %v \n", tx)
 	n.MessageChan <- tx
 
 	reply := <-tx.c
@@ -201,7 +198,7 @@ func (n *node) serveTransaction(r *http.Request, w http.ResponseWriter) {
 		http.Error(w, reply.Err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// r.w.Header().Set("ok", fmt.Sprintf("%v", reply.OK))
+	w.Header().Set("ok", fmt.Sprintf("%v", reply.OK))
 	w.Header().Set("id", fmt.Sprintf("%v", reply.ClientID))
 	w.Header().Set("cid", fmt.Sprintf("%v", reply.CommandID))
 	w.Header().Set("timestamp", fmt.Sprintf("%v", reply.Timestamp))
@@ -295,6 +292,7 @@ func (n *node) Forward(id ids.ID, m Request) {
 			return
 		}
 		defer rep.Body.Close()
+		log.Debugf("Get Forward: %s", rep.Status)
 		if rep.StatusCode == http.StatusOK {
 			b, _ := ioutil.ReadAll(rep.Body)
 			cmd := m.Command
@@ -303,7 +301,13 @@ func (n *node) Forward(id ids.ID, m Request) {
 				Command:   cmd,
 				Value: key_value.Value(b),
 			})
+		} else if rep.StatusCode == http.StatusNotFound {
+			m.Reply(Reply{
+				Command:   m.Command,
+				Value: 	nil,
+			})
 		}
+		log.Debugf("Get Forward Done: %s", rep.Status)
 	case key_value.PUT:
 		req, err := http.NewRequest(http.MethodPut, url, bytes.NewBuffer(m.Command.Value))
 		if err != nil {
@@ -326,11 +330,13 @@ func (n *node) Forward(id ids.ID, m Request) {
 			return
 		}
 		defer rep.Body.Close()
+		log.Debugf("Put Forward: %s", rep.Status)
 		if rep.StatusCode == http.StatusOK {
 			m.Reply(Reply{
 				Command:m.Command,
 			})
 		}
+		log.Debugf("Put Forward Done: %s", rep.Status)
 	case key_value.DELETE:
 		req, err := http.NewRequest(http.MethodDelete, url, nil)
 		if err != nil {

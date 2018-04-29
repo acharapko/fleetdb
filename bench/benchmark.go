@@ -40,7 +40,7 @@ func (d *db) WriteStr(k int, v string) {
 	d.Write(k, []byte(v))
 }
 
-func (d *db) TxWrite(ks []int, v []key_value.Value) {
+func (d *db) TxWrite(ks []int, v []key_value.Value) bool {
 	bkeys := make([]key_value.Key, len(ks))
 	vals := make([]key_value.Value, len(ks))
 	tbls := make([]string, len(ks))
@@ -51,7 +51,7 @@ func (d *db) TxWrite(ks []int, v []key_value.Value) {
 		tbls[i] = "test"
 	}
 
-	d.c.PutTx(bkeys, vals, tbls)
+	return d.c.PutTx(bkeys, vals, tbls)
 
 }
 

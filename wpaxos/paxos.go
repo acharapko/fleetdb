@@ -13,6 +13,7 @@ import (
 	"github.com/acharapko/fleetdb/key_value"
 	"github.com/acharapko/fleetdb/ids"
 	"github.com/acharapko/fleetdb/utils"
+	"math/rand"
 )
 
 var (
@@ -57,8 +58,8 @@ type Paxos struct {
 
 	txLeaseDuration time.Duration
 	txLeaseStart    time.Time
-	txTime			int64
-	txLease			ids.TXID
+	txTime          int64
+	txLease         ids.TXID
 
 	quorum   		*Quorum    // phase 1 quorum
 	requests 		[]*fleetdb.Request // phase 1 pending requests
@@ -115,6 +116,9 @@ func (p *Paxos) SlotNum() int {
 
 func (p *Paxos) GetAccessToken() bool {
 	//log.Debugf("Acquiring Token %v\n", string(p.Key))
+	if p == nil {
+		log.Error("Trying to acquire Paxos lock with nil paxos instance")
+	}
 	t := <- p.Token
 	return t
 }
@@ -146,6 +150,7 @@ func (p *Paxos) HandleRequest(r fleetdb.Request) {
 }
 
 func (p *Paxos) AddRequest(req fleetdb.Request) {
+	log.Debugf("Replica %s added request %v\n", p.ID(), req)
 	p.requests = append(p.requests, &req)
 }
 
@@ -184,19 +189,27 @@ func (p *Paxos) P1aRetry(try int) {
 	} else {
 		p.Try = try + 1
 		p.P1aNoBallotIncrease()
+
 	}
 }
 
 // P1a starts phase 1 prepare
 func (p *Paxos) P1aNoBallotIncrease() {
+	time.Sleep(time.Duration(rand.Int31n(10)+10) * time.Millisecond) //retry after some delay
 
 	if p.Active {
 		return
 	}
 	p.quorum.Reset()
 	p.quorum.ACK(p.ID())
+
+	if p.ballot.ID() != p.ID() {
+		//increase the ballot if our current ballot is not ours
+		p.ballot.Next(p.ID())
+	}
+
 	m := Prepare{Key: p.Key, Table: *p.Table, Ballot: p.ballot, txTime: p.txTime, Try: p.Try}
-	log.Debugf("Replica %s broadcast [%v]\n", p.ID(), m)
+	log.Debugf("Replica %s broadcast [RETRY] [%v]\n", p.ID(), m)
 	p.Broadcast(&m)
 }
 
@@ -249,7 +262,7 @@ func (p *Paxos) HandleP1a(m Prepare) {
 
 		if p.log[s].command.Operation == key_value.TX_LEASE && !p.log[s].executed {
 			// we are giving away unexecuted TX lease, so abort that TX
-			// in essence we want ot sent the reply to channle waiting for all leases, so we do not block.
+			// in essence we want ot sent the reply to channel waiting for all leases, so we do not block.
 			// upon starting phase2, however the system will catch that we do not own an object and abort
 			if p.log[s].request != nil {
 				p.log[s].request.Reply(fleetdb.Reply{
@@ -286,7 +299,10 @@ func (p *Paxos) HandleP1a(m Prepare) {
 		p.ballot = m.Ballot
 		p.Active = false
 		if len(p.requests) > 0 {
-			defer p.P1a()
+			log.Debugf("Replica has requests, need to forward");
+			go p.forward()
+			//defer p.P1a()
+
 		}
 
 	} else if hasLease {
@@ -308,7 +324,6 @@ func (p *Paxos) HandleP1a(m Prepare) {
 func (p *Paxos) update(scb map[int]CommandBallot, mID ids.ID) {
 	//if we learn of any slots, see what we need to update
 	if len(scb) > 0 {
-		log.Debugf("Updating Paxos based on CommandBallots: %v\n", scb)
 		slots := make([]int, 0)
 		for s, _ := range scb {
 			slots = append(slots, s)
@@ -319,6 +334,7 @@ func (p *Paxos) update(scb map[int]CommandBallot, mID ids.ID) {
 		//all previous slots, but now it is becoming a leader and most continue
 		//the log
 		p.execute = utils.Max(p.execute, slots[0])
+		log.Debugf("Updating Paxos (p.execute=%d) based on CommandBallots: %v\n", p.execute, scb)
 		p.epochSlot = p.execute
 		log.Debugf("Updating slots: %v\n", slots)
 		//Iterate in the slot order
@@ -335,10 +351,18 @@ func (p *Paxos) update(scb map[int]CommandBallot, mID ids.ID) {
 						e.oldLeader = &mID
 					}
 					if !cb.Executed && cb.HasTx {
-						e.tx = &cb.Tx
+						if cb.Committed {
+							e.tx = &cb.Tx //we can try to recover
+						} else {
+							e.command.Operation = key_value.NOOP //we stole uncommitted TX slot
+						}
 					} else {
 						e.tx = nil
 					}
+				}
+				if !e.executed && cb.Executed && e.ballot == cb.Ballot {
+					e.tx = nil
+					e.oldLeader = nil
 				}
 			} else {
 				log.Debugf("Adding slot %d: %v\n", s, cb)
@@ -351,7 +375,11 @@ func (p *Paxos) update(scb map[int]CommandBallot, mID ids.ID) {
 					e.oldLeader = &mID
 				}
 				if !cb.Executed && cb.HasTx {
-					e.tx = &cb.Tx
+					if cb.Committed {
+						e.tx = &cb.Tx //we can try to recover
+					} else {
+						e.command.Operation = key_value.NOOP //we stole uncommitted TX slot
+					}
 				} else {
 					e.tx = nil
 				}
@@ -398,7 +426,7 @@ func (p *Paxos) HandleP1b(m Promise) {
 			p.Try = 0
 			p.Active = true
 			// propose any uncommitted entries or entries since last mutate (including) onwards
-			log.Debugf("Proposing learned entries for slots %d to %d:", p.execute, p.slot)
+			log.Debugf("Proposing learned entries for key=%s slots %d to %d:", string(p.Key), p.execute, p.slot)
 			for i := p.execute; i <= p.slot; i++ {
 
 				if p.log[i] == nil || p.log[i].commit {
@@ -419,6 +447,7 @@ func (p *Paxos) HandleP1b(m Promise) {
 			}
 			// propose new commands
 			for _, req := range p.requests {
+				log.Debugf("proposing req=%v", req)
 				p.P2a(req)
 			}
 			p.requests = make([]*fleetdb.Request, 0)
@@ -433,6 +462,7 @@ func (p *Paxos) HandleP2a(m Accept) {
 
 	p.epochSlot = m.EpochSlot
 	p.execute = utils.Max(p.execute, m.EpochSlot)
+	log.Debugf("Phase2 P.Execute (key=%s) updated %d", string(p.Key), p.execute)
 	p.ProcessP2a(m, nil)
 
 	p.Send(m.Ballot.ID(), &Accepted{
@@ -503,10 +533,15 @@ func (p *Paxos) HandleP2b(m Accepted) bool {
 				p.RBroadcast(p.ID().Zone(), &m)
 				log.Debugf("Replica %s RBroadcasted [%v]\n", p.ID(), m)
 				if slotEntry.oldLeader != nil {
-					//we have old leader on this lsot which may be waiting on the commit decision to reply
+					//we have old leader on this slot which may be waiting on the commit decision to reply
 					//to its client
-					log.Debugf("Replica %s Send [%v] to Old Leader $s \n", p.ID(), m, slotEntry.oldLeader)
-					p.Send(*slotEntry.oldLeader, &m)
+					m2 := Exec{
+						Slot:    m.Slot,
+						EpochSlot:p.epochSlot,
+						Command: slotEntry.command,
+					}
+					log.Debugf("Replica %s Send [%v] to Old Leader %s \n", p.ID(), m, *slotEntry.oldLeader)
+					p.Send(*slotEntry.oldLeader, &m2)
 				}
 				return true
 			} else {
@@ -608,11 +643,10 @@ func (p *Paxos) Exec() {
 			e.executed = true
 			p.execute++
 		} else {
-			if e.tx == nil || e.command.Operation == key_value.NOOP {
+			if e.tx == nil || e.command.Operation == key_value.NOOP  {
 				value, err := p.Execute(e.command)
 				if err == nil {
 					if e.request != nil {
-						log.Debugf("setting reply: %s\n", value)
 						e.request.Reply(fleetdb.Reply{
 							Command: e.command,
 							Value:   value,
@@ -627,7 +661,7 @@ func (p *Paxos) Exec() {
 						log.Errorf("Exec Error {entry = %v}: %s\n", e, err)
 					}
 					if e.request != nil {
-						log.Debugf("reply with err: %s\n", err)
+						log.Debugf("reply with err (key=%s): %s\n", e.command.Key, err)
 						e.request.Reply(fleetdb.Reply{
 							Command: e.command,
 							Err:	 err,
@@ -688,9 +722,11 @@ func (p *Paxos) cleanLog(slotNum int) {
 		}
 	}
 	if len(p.log) == 0 {
+		//log.Debug("Clean ZERO")
 		p.log = make(map[int]*entry, p.Config().BufferSize)
 	}
 	if len(p.log) == 1 {
+		//log.Debug("Clean UNO")
 		tempLog := make(map[int]*entry, p.Config().BufferSize)
 		for s, _ := range p.log {
 			tempLog[s] = p.log[s]
@@ -726,4 +762,22 @@ func (p *Paxos) setLease(t int64, txid ids.TXID) {
 	p.txLease = txid
 	p.txTime = t
 	p.txLeaseStart = time.Now()
+}
+
+func (p *Paxos) forward() {
+	for _, m := range p.requests {
+		if m.Command.Operation == key_value.TX_LEASE {
+			// we are giving up on a transaction, since we did not even get a chance to put LEASE onto a log
+			log.Debugf("Forward and TX_LEASE - Abort TX")
+			if m != nil {
+				m.Reply(fleetdb.Reply{
+					Command: m.Command,
+					Err:     ErrTXPreempted,
+				})
+			}
+		} else {
+			go p.Forward(p.ballot.ID(), *m)
+		}
+	}
+	p.requests = make([]*fleetdb.Request, 0)
 }

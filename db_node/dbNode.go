@@ -34,7 +34,7 @@ type DBNode struct {
 	memprofile string
 
 	//TODO: refactor load factor and distance calculation to use channel sync instead?
-	sync.RWMutex
+	dbnodelock sync.RWMutex
 }
 
 func NewDBNode(config config.Config) *DBNode {
@@ -73,17 +73,14 @@ func (db *DBNode) startBalanceGossip(config config.Config) {
 			select {
 				case <- ticker.C:
 					//send gossip message
-					db.RLock()
+					db.dbnodelock.Lock()
 					countKeys := db.CountKeys()
-					db.RUnlock()
-					db.Broadcast(&GossipBalance{countKeys, db.ID()})
-					db.Lock()
 					db.balanceCount[db.ID()] = countKeys
-					db.Unlock()
-					db.computeLoadFactor(db.ID())
+					db.dbnodelock.Unlock()
 
+					db.Broadcast(&GossipBalance{countKeys, db.ID()})
 
-					log.Debugf("Memprofile file: \n", db.memprofile)
+					log.Debugf("Memprofile file: %s\n", db.memprofile)
 					if db.memprofile != "" {
 						f, err := os.Create(db.memprofile)
 						if err != nil {
@@ -111,8 +108,8 @@ func (db *DBNode) startProximityGossip(config config.Config) {
 }
 
 func (db *DBNode) computeReplicationGroupZones(zone int) []int{
-	db.Lock()
-	defer db.Unlock()
+	db.dbnodelock.Lock()
+	defer db.dbnodelock.Unlock()
 
 	rgz := make([]int, db.Config().RS)
 	rgz[0] = zone //our zone is always in our region
@@ -149,10 +146,10 @@ func (db *DBNode) GetReplicationGroupZones(zone int) []int  {
 //fleetdb Message Handlers
 
 func (db *DBNode) handleGossipBalance(m GossipBalance) {
-	db.Lock()
+	db.dbnodelock.Lock()
 	log.Debugf("GossipBalance ===[%v]=== @ Replica %s\n", m, m.From)
 	db.balanceCount[m.From] = m.Items
-	db.Unlock()
+	db.dbnodelock.Unlock()
 	db.computeLoadFactor(m.From)
 }
 
@@ -165,11 +162,11 @@ func (db *DBNode) handleProximityPingResponse(m ProximityPingResponse) {
 	log.Debugf("ProximityPingResponse Replica %s ===[%v]=== \n", m.From, m)
 	//TODO: compute ping for that node and compute ping distance between availability zones
 	tdiff := time.Now().UnixNano() - m.TimeSent
-	db.Lock()
+	db.dbnodelock.Lock()
 	db.pingDistances[m.From] = int(tdiff)
 	//TODO: Maybe compute average distance to zone?
 	db.pingZonesDistances[m.From.Zone()] = int(tdiff)
-	db.Unlock()
+	db.dbnodelock.Unlock()
 	db.rgz = db.computeReplicationGroupZones(db.ID().Zone())
 }
 
@@ -181,22 +178,36 @@ func (db *DBNode) handleProximityPingResponse(m ProximityPingResponse) {
 	This computes how loaded this nodes is with data compared to other nodes in the system.
  */
 func (db *DBNode) computeLoadFactor(id ids.ID) {
-	db.Lock()
-	defer db.Unlock()
+	db.dbnodelock.Lock()
+	defer db.dbnodelock.Unlock()
 	var totalCount int
 	for _, v := range db.balanceCount {
 		totalCount += v
 	}
 	db.targetBalance = 1.0 / float64(len(db.balanceCount))
 	db.loadFactor[id] = float64(db.balanceCount[id]) / float64(totalCount)
+	db.loadFactor[db.ID()] = float64(db.balanceCount[db.ID()]) / float64(totalCount) //recompute our own load factor based on new data
 	log.Infof("Load Factor @ Replica %s: %f (%d items) (target=%f)\n", id, db.loadFactor[id], db.balanceCount[id], db.targetBalance)
+	log.Infof("Load Factor @ Replica %s: %f (%d items) (target=%f)\n", db.ID(), db.loadFactor[db.ID()], db.balanceCount[db.ID()], db.targetBalance)
+}
+
+func (db *DBNode) computeOwnLoadFactor() {
+	db.dbnodelock.Lock()
+	defer db.dbnodelock.Unlock()
+	var totalCount int
+	for _, v := range db.balanceCount {
+		totalCount += v
+	}
+	db.targetBalance = 1.0 / float64(len(db.balanceCount))
+	db.loadFactor[db.ID()] = float64(db.balanceCount[db.ID()]) / float64(totalCount) //recompute our own load factor based on new data
+	log.Infof("Load Factor @ Replica %s: %f (%d items) (target=%f)\n", db.ID(), db.loadFactor[db.ID()], db.balanceCount[db.ID()], db.targetBalance)
 }
 
 
 func (db *DBNode) processLeaderChange(to ids.ID, p *wpaxos.Paxos) {
-	db.RLock()
+	db.dbnodelock.Lock()
 	loadFctr := db.loadFactor[to]
-	db.RUnlock()
+	db.dbnodelock.Unlock()
 
 	if to.Zone() != db.ID().Zone() {
 		log.Debugf("Process Leader (Key=%s, table=%s) Change @ %s: to %s balance = %f, overld = %f\n", string(p.Key), p.Table, db.ID(), to, loadFctr, db.Config().OverldThrshld)
@@ -206,12 +217,14 @@ func (db *DBNode) processLeaderChange(to ids.ID, p *wpaxos.Paxos) {
 			//we can find a better node in the same replication region
 			zones := db.computeReplicationGroupZones(to.Zone()) //this is our best guess for the replication region now
 			//log.Debugf("Process Leader: Got Zones %v\n", zones)
+			db.dbnodelock.RLock()
 			for id, lf := range db.loadFactor {
 				if utils.IntInSlice(id.Zone(), zones) && loadFctr > lf {
 					to = id
 					break
 				}
 			}
+			db.dbnodelock.RUnlock()
 		}
 
 		db.Send(to, &wpaxos.LeaderChange{
@@ -244,23 +257,28 @@ func (db *DBNode) findEvictKey(table string) *evictionNotice {
 		//now find a good home for the poor evicted key ;)
 		log.Debugf("Found Evict Key @ %v: %s \n", db.ID(), lak)
 		//first, lets check if this region has some room
+		db.dbnodelock.RLock()
 		for id, lf := range db.loadFactor {
 			thisRR := utils.IntInSlice(id.Zone(), db.rgz)
 			if id != db.ID() && thisRR && lf - db.Config().OverldThrshld < db.targetBalance {
 				//we found a home!
 				log.Infof("SAME REGION (lf = %f) EVICTION TO %s \n",lf, id)
 				tbl.MarkKeyEvicting(lak)
+				db.dbnodelock.RUnlock()
 				return &evictionNotice{key: lak, table: table, dest: id}
 			}
 		}
+		db.dbnodelock.RUnlock()
 
 		//if we got to here, there was no suitable place in the region.
 		//lets find something as close as possible
 		distToZone := map[int][]int{}
 		var dist []int
+		db.dbnodelock.RLock()
 		for z, dist := range db.pingZonesDistances {
 			distToZone[dist] = append(distToZone[dist], z) //adding zone to this distance
 		}
+		db.dbnodelock.RUnlock()
 		for z := range distToZone {
 			dist = append(dist, z)
 		}
@@ -273,13 +291,16 @@ func (db *DBNode) findEvictKey(table string) *evictionNotice {
 				difReplGrp := utils.IntInSlice(z, db.rgz)
 				if !difReplGrp {
 					//z is in different replication region
+					db.dbnodelock.RLock()
 					for id, _ := range db.pingDistances {
 						if id.Zone() == z {
 							log.Infof("REMOTE REGION EVICTION TO %s \n", id)
 							tbl.MarkKeyEvicting(lak)
+							db.dbnodelock.RUnlock()
 							return &evictionNotice{key: lak, table: table, dest: id}
 						}
 					}
+					db.dbnodelock.RUnlock()
 				}
 			}
 		}
@@ -289,28 +310,36 @@ func (db *DBNode) findEvictKey(table string) *evictionNotice {
 
 func (db *DBNode) EvictKey(table string) {
 	log.Debugf("Replica %s evicting key\n", db.ID())
-	db.RLock()
+	db.dbnodelock.RLock()
 	lf := db.loadFactor[db.ID()]
 	tb := db.targetBalance
-	db.RUnlock()
-	log.Debugf("EvictKey lf= %f \n", lf)
+	db.dbnodelock.RUnlock()
+	log.Infof("Considering Eviction @ %v: lf= %f, target=%f \n", db.ID(), lf, tb)
 	//this ugly loop tells how many keys to evict. The bigger misbalance causes more evictions
+	evictedCount:=0
 	for i := tb; i < lf; i += db.Config().OverldThrshld {
 		if lf - db.Config().OverldThrshld > tb {
 			evictNotice := db.findEvictKey(table)
 			if evictNotice != nil {
-				log.Debugf("Replica %s evicting key %s to %s \n", db.ID(), string(evictNotice.key), evictNotice.dest)
 				p := db.GetPaxos(evictNotice.key, evictNotice.table)
-
-				db.Send(evictNotice.dest, &wpaxos.LeaderChange{
-					Key:    evictNotice.key,
-					To:     evictNotice.dest,
-					From:   db.ID(),
-					Ballot: p.Ballot(),
-				})
+				if p != nil {
+					evictedCount++
+					log.Debugf("Replica %s evicting key=%s to %s \n", db.ID(), string(evictNotice.key), evictNotice.dest)
+					db.Send(evictNotice.dest, &wpaxos.LeaderChange{
+						Key:    evictNotice.key,
+						Table:  *p.Table,
+						To:     evictNotice.dest,
+						From:   db.ID(),
+						Ballot: p.Ballot(),
+					})
+				}
 			}
 		}
 	}
+	db.dbnodelock.Lock()
+	db.balanceCount[db.ID()] -= evictedCount
+	db.dbnodelock.Unlock()
+	db.computeOwnLoadFactor()
 }
 
 /**
@@ -318,10 +347,11 @@ func (db *DBNode) EvictKey(table string) {
  */
 
 func (db *DBNode) handlePrepareDBNode(m wpaxos.Prepare) {
-	//log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, r.ID())
+	log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.Ballot.ID(), m, db.ID())
 	db.Replica.HandlePrepare(m)
 	p := db.GetPaxos(m.Key, m.Table)
 	if !p.Active {
+		log.Debugf("Removing Stats for key=%s", string(m.Key))
 		tbl := db.GetTable(m.Table)
 		tbl.RemoveStats(m.Key)
 	}
@@ -345,11 +375,17 @@ func (db *DBNode) HandleRequest(m fleetdb.Request) {
 			if to != "" {
 				db.processLeaderChange(ids.ID(to), p)
 			}
+			db.dbnodelock.RLock()
+			lf := db.loadFactor[db.ID()]
+			tb := db.targetBalance
+			db.dbnodelock.RUnlock()
+			if lf > tb {
+				go db.EvictKey(m.Command.Table)
+			}
 		} else {
 			go db.Forward(p.Leader(), m)
 		}
 	} else {
-		go db.EvictKey(m.Command.Table)
 		db.Replica.HandleRequest(m)
 	}
 

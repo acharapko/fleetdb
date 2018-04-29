@@ -9,6 +9,7 @@ import (
 	"github.com/acharapko/fleetdb/key_value"
 	"github.com/acharapko/fleetdb/ids"
 	"github.com/acharapko/fleetdb/config"
+	"github.com/acharapko/fleetdb/utils"
 )
 
 var (
@@ -23,6 +24,8 @@ type Replica struct {
 
 	txl 	sync.RWMutex
 	txs		map[ids.TXID] *fleetdb.Transaction //this is the map of all outstanding TX Replica knows of
+
+	txexec sync.RWMutex
 }
 
 func NewReplica(config config.Config) *Replica {
@@ -43,6 +46,7 @@ func NewReplica(config config.Config) *Replica {
 	r.Register(Accepted{}, r.handleAccepted)
 	r.Register(AcceptedTX{}, r.handleAcceptedTX)
 	r.Register(Commit{}, r.handleCommit)
+	r.Register(Exec{}, r.handleExec)
 	r.Register(CommitTX{}, r.handleCommitTX)
 
 	zones := make(map[int]int)
@@ -70,12 +74,12 @@ func (r *Replica) init(key key_value.Key, table string) {
 }
 
 func (r *Replica) GetPaxos(key key_value.Key, table string) *Paxos {
-	r.Lock()
 	if _, exists := r.tables[table]; exists {
+		r.init(key, table)
+		r.Lock()
 		defer r.Unlock()
 		return r.tables[table].GetPaxos(key)
 	} else {
-		r.Unlock()
 		r.init(key, table)
 		r.Lock()
 		defer r.Unlock()
@@ -174,10 +178,10 @@ func (r *Replica) waitForLease(m *fleetdb.Transaction, TxLeaseChan chan fleetdb.
 	recvd := 0
 	for recvd < len(m.Commands) {
 		reply := <- TxLeaseChan
-		log.Debugf("Replica %s received TX_LEASE reply %v\n", r.ID(), reply)
+		log.Debugf("Replica %s received TX_LEASE reply (TxID=%v) %v\n", r.ID(), TxID, reply)
 		recvd++
 		if reply.Err != nil {
-			log.Debugf("Wait for Lease error %v\n", reply.Err)
+			log.Debugf("Wait for Lease error (TxID=%v): %v\n", TxID, reply.Err)
 		}
 	}
 	//now we can start p2a for all keys
@@ -192,6 +196,8 @@ func (r *Replica) startTxP2a(tx *fleetdb.Transaction) {
 
 	tx.MakeExecChannel(numKeys)
 
+	//first we lock this replica from making sure another TX does not try to get individual paxos boxes
+	r.txexec.Lock()
 	//lock all Paxos for the TX
 	for _, c := range tx.Commands {
 		p := r.GetPaxosByCmd(c)
@@ -200,7 +206,7 @@ func (r *Replica) startTxP2a(tx *fleetdb.Transaction) {
 	proceedOk := true
 	for _, c := range tx.Commands {
 		p := r.GetPaxos(c.Key, c.Table)
-		if p.Ballot().ID() != r.ID() {
+		if p.Ballot().ID() != r.ID() || !p.Active {
 			proceedOk = false
 			//there is a key we do not own
 			//so we reject
@@ -230,6 +236,8 @@ func (r *Replica) startTxP2a(tx *fleetdb.Transaction) {
 		p := r.GetPaxos(c.Key, c.Table)
 		p.ReleaseAccessToken()
 	}
+	//Unlock tx Exec lock
+	r.txexec.Unlock()
 
 	if !proceedOk {
 		return
@@ -338,7 +346,6 @@ func (r *Replica) handleAcceptedTX(msg AcceptedTX) {
 func (r *Replica) GetTX(txid ids.TXID) *fleetdb.Transaction {
 	r.txl.RLock()
 	defer r.txl.RUnlock()
-	log.Debug("Good")
 	return r.txs[txid]
 }
 
@@ -424,6 +431,8 @@ func (r *Replica) ExecTx(tx *fleetdb.Transaction) {
 
 	log.Debugf("Replica %s Execute TX %v (%d commands)\n", r.ID(), tx.TxID, len(tx.Commands))
 
+	//first we lock this replica from making sure another TX does not try to get individual paxos boxes
+	r.txexec.Lock()
 	//get all locks
 	for _, cmd := range tx.Commands {
 		p := r.GetPaxosByCmd(cmd)
@@ -453,6 +462,8 @@ func (r *Replica) ExecTx(tx *fleetdb.Transaction) {
 		p.Exec()
 		p.ReleaseAccessToken() //and give up all locks
 	}
+	//and unlock tx execution lock
+	r.txexec.Unlock()
 
 	tx.CloseExecChannel()
 }
@@ -517,7 +528,7 @@ func (r *Replica) handleAccepted(m Accepted) {
 	p := r.GetPaxos(m.Key, m.Table)
 
 	needExec := p.HandleP2b(m)
-	log.Debugf("handleAccepted needExec %t\n", needExec)
+	//log.Debugf("handleAccepted needExec %t\n", needExec)
 
 	if needExec {
 		p.GetAccessToken()
@@ -533,6 +544,25 @@ func (r *Replica) handleCommit(m Commit) {
 	p := r.GetPaxosByCmd(m.Command)
 
 	p.HandleP3(m)
+
+}
+
+func (r *Replica) handleExec(m Exec) {
+	log.Debugf("Replica ===[%v]===>>> Replica %s\n", m, r.ID())
+	r.init(m.Command.Key, m.Command.Table)
+	p := r.GetPaxosByCmd(m.Command)
+
+	p.GetAccessToken()
+	p.epochSlot = m.EpochSlot
+	p.execute = utils.Max(p.execute, m.EpochSlot)
+	p.ReleaseAccessToken()
+
+	m2 := Commit{
+		Slot:m.Slot,
+		Command:m.Command,
+	}
+
+	p.HandleP3(m2)
 
 }
 

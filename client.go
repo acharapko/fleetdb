@@ -177,7 +177,7 @@ func (c *Client) PutAsync(key key_value.Key, value key_value.Value, table string
 }
 
 // Put post json request
-func (c *Client) PutTx(keys []key_value.Key, values []key_value.Value, tables []string) {
+func (c *Client) PutTx(keys []key_value.Key, values []key_value.Value, tables []string) bool {
 	c.txNum++
 	cmds := make([]key_value.Command, len(keys))
 	cntr := 0
@@ -187,7 +187,7 @@ func (c *Client) PutTx(keys []key_value.Key, values []key_value.Value, tables []
 		cmds[cntr] = cmd
 		cntr++
 	}
-	c.JSONTX(cmds)
+	return c.JSONTX(cmds)
 }
 
 func (c *Client) PrepTx() {
@@ -216,8 +216,8 @@ func (c *Client) AddTxGet(key key_value.Key, table string) {
 	c.tempCmds = append(c.tempCmds, cmd)
 }
 
-func (c *Client) SendTX() {
-	c.JSONTX(c.tempCmds)
+func (c *Client) SendTX() bool {
+	return c.JSONTX(c.tempCmds)
 }
 
 func (c *Client) JSONGet(key key_value.Key, table string) key_value.Value {
@@ -266,7 +266,7 @@ func (c *Client) JSONPut(key key_value.Key, value key_value.Value, table string)
 	log.Debugf("%q", dump)
 }
 
-func (c *Client) JSONTX(commands []key_value.Command) {
+func (c *Client) JSONTX(commands []key_value.Command) bool {
 	c.cid++
 	tx := new(Transaction)
 	tx.ClientID = c.ID
@@ -280,13 +280,18 @@ func (c *Client) JSONTX(commands []key_value.Command) {
 	data, err := json.Marshal(*tx)
 	rep, err := http.Post(url, "application/json", bytes.NewBuffer(data))
 	if rep != nil {
+		log.Debugf("TX ok=%s", rep.Header["Ok"][0] )
 		defer rep.Body.Close()
+		if rep.Header["Ok"][0] == "true" {
+			return true
+		}
 	}
 	if err != nil {
 		log.Errorln(err)
-		return
+		return false
 	}
 	log.Debugln(rep.Status)
+	return false
 }
 
 // RequestDone returns the total number of succeed async reqeusts
