@@ -5,6 +5,7 @@ import (
 	"github.com/acharapko/fleetdb"
 	"github.com/acharapko/fleetdb/ids"
 	"math"
+
 )
 
 type hitstat interface {
@@ -20,20 +21,21 @@ type hitstat interface {
 // keystat of access history in previous interval time
 type keystat struct {
 	hits     map[ids.ID]int
+	ema		 float64
 	time     time.Time // last start time
-	LastReqT int64 //last op timestamp
+	LastReqT int64 //last operation timestamp
 	evicting bool
-	sum      int       // total hits in current interval
+	sum      int // total hits in current interval
 }
 
 func NewStat() *keystat {
 	return &keystat{
 		hits:     make(map[ids.ID]int),
+		ema:	  0,
 		time:     time.Now(),
 	}
 }
 
-// hit record access id and return the
 func (s *keystat) CalcDestination() ids.ID {
 
 	threshold := int(math.Ceil(1.0 / float64(NumZones) + Migration_majority) * float64(s.sum))
@@ -46,15 +48,6 @@ func (s *keystat) CalcDestination() ids.ID {
 	s.Reset()
 	return ""
 }
-
-
-// total hits per second truncated to an int
-/*func (s *keystat) TotalHitsPerSec() int {
-	ts := time.Since(s.time)
-	thps := float64(s.sum) / ts.Seconds()
-	//log.Debugf("s.sum = %d, ts.sec =%f\n", s.sum, ts.Seconds())
-	return int(thps)
-}*/
 
 func (s *keystat) LastReqTime() int64 {
 	return s.LastReqT
@@ -70,6 +63,7 @@ func (s *keystat) MarkEvicting() {
 
 // hit record access id and return the
 func (s *keystat) Hit(id ids.ID, lt int64) ids.ID {
+
 	s.hits[id]++
 	s.sum++
 	s.LastReqT = lt

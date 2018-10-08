@@ -37,15 +37,17 @@ type DBNode struct {
 	dbnodelock sync.RWMutex
 }
 
-func NewDBNode(config config.Config) *DBNode {
+func NewDBNode() *DBNode {
 	db := new(DBNode)
+	log.Infof("Creating DBNode id = %v \n", ids.GetID())
 	db.balanceCount = make(map[ids.ID]int)
 	db.loadFactor = make(map[ids.ID]float64)
 	db.pingDistances = make(map[ids.ID]int)
 	db.pingZonesDistances = make(map[int]int)
-	db.Replica = wpaxos.NewReplica(config)
-	//db.stats = make(map[string] hitstat)
+	db.Replica = wpaxos.NewReplica()
+
 	//fleetdb utils
+	log.Infof("Registering fleetdb utils at node %v \n", ids.GetID())
 	db.Register(GossipBalance{}, db.handleGossipBalance)
 	db.Register(ProximityPingRequest{}, db.handleProximityPingRequest)
 	db.Register(ProximityPingResponse{}, db.handleProximityPingResponse)
@@ -53,8 +55,8 @@ func NewDBNode(config config.Config) *DBNode {
 	db.Register(fleetdb.Transaction{}, db.handleTransaction)
 	db.Register(wpaxos.LeaderChange{}, db.handleLeaderChange)
 	db.Register(wpaxos.Prepare{}, db.handlePrepareDBNode)
-	db.startBalanceGossip(config)
-	db.startProximityGossip(config)
+	db.startBalanceGossip() // start gossiping about data balance in the system
+	db.startProximityGossip() // start gossiping about node proximity
 	//send gossip message
 	m := ProximityPingRequest{db.ID(),  time.Now().UnixNano()}
 	db.Broadcast(&m)
@@ -65,8 +67,9 @@ func (db *DBNode) SetMemProfile(memprofile string) {
 	db.memprofile = memprofile
 }
 
-func (db *DBNode) startBalanceGossip(config config.Config) {
-	ticker := time.NewTicker(time.Duration(config.BalGossipInt) * time.Millisecond)
+func (db *DBNode) startBalanceGossip() {
+	log.Infof("Starting balance gossip at node %v \n", ids.GetID())
+	ticker := time.NewTicker(time.Duration(config.GetConfig().BalGossipInt) * time.Millisecond)
 
 	go func() {
 		for {
@@ -94,8 +97,9 @@ func (db *DBNode) startBalanceGossip(config config.Config) {
 	}()
 }
 
-func (db *DBNode) startProximityGossip(config config.Config) {
-	ticker := time.NewTicker(time.Duration(config.BalGossipInt) * time.Millisecond)
+func (db *DBNode) startProximityGossip() {
+	log.Infof("Starting proximity gossip at node %v \n", ids.GetID())
+	ticker := time.NewTicker(time.Duration(config.GetConfig().BalGossipInt) * time.Millisecond)
 	go func() {
 		for {
 			select {
@@ -111,7 +115,7 @@ func (db *DBNode) computeReplicationGroupZones(zone int) []int{
 	db.dbnodelock.Lock()
 	defer db.dbnodelock.Unlock()
 
-	rgz := make([]int, db.Config().RS)
+	rgz := make([]int, config.GetConfig().RS)
 	rgz[0] = zone //our zone is always in our region
 
 	distToZone := map[int][]int{}
@@ -125,12 +129,12 @@ func (db *DBNode) computeReplicationGroupZones(zone int) []int{
 	//sorting distances
 	sort.Sort(sort.IntSlice(dist))
 
-	zleft := db.Config().RS - 1
+	zleft := config.GetConfig().RS - 1
 	//iterate through distances
 	for _, d := range dist {
 		for _, z := range distToZone[d] {
 			if zleft > 0 {
-				rgz[db.Config().RS - zleft] = z
+				rgz[config.GetConfig().RS - zleft] = z
 				zleft--
 			}
 		}
@@ -187,8 +191,8 @@ func (db *DBNode) computeLoadFactor(id ids.ID) {
 	db.targetBalance = 1.0 / float64(len(db.balanceCount))
 	db.loadFactor[id] = float64(db.balanceCount[id]) / float64(totalCount)
 	db.loadFactor[db.ID()] = float64(db.balanceCount[db.ID()]) / float64(totalCount) //recompute our own load factor based on new data
-	log.Infof("Load Factor @ Replica %s: %f (%d items) (target=%f)\n", id, db.loadFactor[id], db.balanceCount[id], db.targetBalance)
-	log.Infof("Load Factor @ Replica %s: %f (%d items) (target=%f)\n", db.ID(), db.loadFactor[db.ID()], db.balanceCount[db.ID()], db.targetBalance)
+	log.Infof("load Factor @ Replica %s: %f (%d items) (target=%f)\n", id, db.loadFactor[id], db.balanceCount[id], db.targetBalance)
+	log.Infof("load Factor @ Replica %s: %f (%d items) (target=%f)\n", db.ID(), db.loadFactor[db.ID()], db.balanceCount[db.ID()], db.targetBalance)
 }
 
 func (db *DBNode) computeOwnLoadFactor() {
@@ -200,7 +204,7 @@ func (db *DBNode) computeOwnLoadFactor() {
 	}
 	db.targetBalance = 1.0 / float64(len(db.balanceCount))
 	db.loadFactor[db.ID()] = float64(db.balanceCount[db.ID()]) / float64(totalCount) //recompute our own load factor based on new data
-	log.Infof("Load Factor @ Replica %s: %f (%d items) (target=%f)\n", db.ID(), db.loadFactor[db.ID()], db.balanceCount[db.ID()], db.targetBalance)
+	log.Infof("load Factor @ Replica %s: %f (%d items) (target=%f)\n", db.ID(), db.loadFactor[db.ID()], db.balanceCount[db.ID()], db.targetBalance)
 }
 
 
@@ -210,10 +214,10 @@ func (db *DBNode) processLeaderChange(to ids.ID, p *wpaxos.Paxos) {
 	db.dbnodelock.Unlock()
 
 	if to.Zone() != db.ID().Zone() {
-		log.Debugf("Process Leader (Key=%s, table=%s) Change @ %s: to %s balance = %f, overld = %f\n", string(p.Key), p.Table, db.ID(), to, loadFctr, db.Config().OverldThrshld)
+		log.Debugf("Process Leader (Key=%s, table=%s) Change @ %s: to %s balance = %f, overld = %f\n", string(p.Key), p.Table, db.ID(), to, loadFctr, config.GetConfig().OverldThrshld)
 		//we are changing zone.
 		//see if we can have a better node for balance
-		if loadFctr - db.Config().OverldThrshld > db.targetBalance {
+		if loadFctr - config.GetConfig().OverldThrshld > db.targetBalance {
 			//we can find a better node in the same replication region
 			zones := db.computeReplicationGroupZones(to.Zone()) //this is our best guess for the replication region now
 			//log.Debugf("Process Leader: Got Zones %v\n", zones)
@@ -260,7 +264,7 @@ func (db *DBNode) findEvictKey(table string) *evictionNotice {
 		db.dbnodelock.RLock()
 		for id, lf := range db.loadFactor {
 			thisRR := utils.IntInSlice(id.Zone(), db.rgz)
-			if id != db.ID() && thisRR && lf - db.Config().OverldThrshld < db.targetBalance {
+			if id != db.ID() && thisRR && lf - config.GetConfig().OverldThrshld < db.targetBalance {
 				//we found a home!
 				log.Infof("SAME REGION (lf = %f) EVICTION TO %s \n",lf, id)
 				tbl.MarkKeyEvicting(lak)
@@ -317,8 +321,8 @@ func (db *DBNode) EvictKey(table string) {
 	log.Infof("Considering Eviction @ %v: lf= %f, target=%f \n", db.ID(), lf, tb)
 	//this ugly loop tells how many keys to evict. The bigger misbalance causes more evictions
 	evictedCount:=0
-	for i := tb; i < lf; i += db.Config().OverldThrshld {
-		if lf - db.Config().OverldThrshld > tb {
+	for i := tb; i < lf; i += config.GetConfig().OverldThrshld {
+		if lf - config.GetConfig().OverldThrshld > tb {
 			evictNotice := db.findEvictKey(table)
 			if evictNotice != nil {
 				p := db.GetPaxos(evictNotice.key, evictNotice.table)
@@ -365,7 +369,7 @@ func (db *DBNode) HandleRequest(m fleetdb.Request) {
 	k := m.Command.Key
 
 	p := db.GetPaxosByCmd(m.Command)
-	if p != nil && db.Config().Adaptive {
+	if p != nil && config.GetConfig().Adaptive {
 		if p.IsLeader() || p.Ballot() == 0 {
 			db.Replica.HandleRequest(m)
 			tbl := db.GetTable(m.Command.Table)

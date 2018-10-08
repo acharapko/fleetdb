@@ -44,16 +44,6 @@ func (t *Table) Init(key key_value.Key, r *Replica) {
 }
 
 func (t *Table) CountKeys() int {
-	/*sum := 0
-	t.RLock()
-	defer t.RUnlock()
-
-	for _, paxos := range t.paxi {
-		if paxos.Active {
-			sum++
-		}
-	}
-	return sum*/
 	return len(t.stats)
 }
 
@@ -73,7 +63,7 @@ func (t *Table) RemoveStats(key key_value.Key) {
 	defer t.Unlock()
 	k := key.B64()
 	if _, exists := t.stats[k]; exists {
-		//log.Debugf("Remove Stat for Key %s\n", key)
+		log.Debugf("Remove Stat for Key %s\n", key)
 		delete(t.stats, k)
 	}
 }
@@ -84,23 +74,6 @@ func (t *Table) HitKey(key key_value.Key, clientID ids.ID, timestamp int64) ids.
 	return t.stats[key.B64()].Hit(clientID, timestamp)
 }
 
-func (t *Table) FindLeastUsedKeyOld() key_value.Key {
-	t.Lock()
-	defer t.Unlock()
-	var lak key_value.Key
-	timesused := int64(^uint64(0) >> 1) //max int
-	for k, hits := range t.stats {
-		if !hits.Evicting() {
-			lt := hits.LastReqTime()
-			//log.Debugf("lt = %d \n", lt)
-			if lt < timesused && lt > 0 {
-				lak = key_value.KeyFromB64(k)
-				timesused = lt
-			}
-		}
-	}
-	return lak
-}
 
 func (t *Table) FindLeastUsedKey() key_value.Key {
 	t.Lock()
@@ -110,23 +83,17 @@ func (t *Table) FindLeastUsedKey() key_value.Key {
 	timeused := int64(^uint64(0) >> 1) //max int
 	for k, hits := range t.stats {
 		lt := hits.LastReqTime()
-		//log.Debugf("lt = %d \n", lt)
 		if !hits.Evicting() && lt < timeused && lt > NANOSECONDS_PER_SECOND   { //more than one second old
 			temp_key = key_value.KeyFromB64(k)
 			p := t.paxi[temp_key.B64()]
 			if p != nil  {
-				//p.GetAccessToken()
 				hasLease := p.HasTXLease(0)
-				//p.ReleaseAccessToken()
 				if len(p.requests) == 0 && !hasLease {
 					lak = temp_key
 					timeused = lt
 				}
 			}
-
 		}
-
-
 	}
 	return lak
 }

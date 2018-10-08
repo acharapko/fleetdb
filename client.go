@@ -35,10 +35,12 @@ type Client struct {
 }
 
 // NewClient creates a new Client from config
-func NewClient(config config.Config) *Client {
-	fmt.Printf("Starting Client %v\n", config.ID)
+func NewClient() *Client {
+	config := config.GetConfig()
+	ids.GetID()
+	fmt.Printf("Starting Client %v\n", ids.GetID())
 	c := new(Client)
-	c.ID = config.ID
+	c.ID = ids.GetID()
 	c.N = len(config.Addrs)
 	c.addrs = config.Addrs
 	c.http = config.HTTPAddrs

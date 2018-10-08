@@ -22,13 +22,11 @@ type consoleClient struct {
 
 func main() {
 	flag.Parse()
-
+	config.LoadConfig()
 	id := ids.GetID()
 
-	var cfg config.Config
-	cfg = config.NewConfig(id)
 	cc := new(consoleClient)
-	cc.client = fleetdb.NewClient(cfg)
+	cc.client = fleetdb.NewClient()
 
 	fmt.Printf("Welcome to fleetdb Console. Home Node is %v\n", id)
 	cc.RunConsole()

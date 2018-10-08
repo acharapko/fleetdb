@@ -34,7 +34,6 @@ type Node interface {
 	netwrk.Socket
 	key_value.Store
 	ID() ids.ID
-	Config() config.Config
 	Run()
 	Retry(r Request)
 	Forward(id ids.ID, r Request)
@@ -46,10 +45,7 @@ type Node interface {
 // node implements Node interface
 type node struct {
 	id     ids.ID
-	config config.Config
-
 	txCount int32
-
 	netwrk.Socket
 	key_value.Store
 	MessageChan chan interface{}
@@ -57,13 +53,14 @@ type node struct {
 }
 
 // NewNode creates a new Node object from configuration
-func NewNode(config config.Config) Node {
+func NewNode() Node {
+	log.Infof("Starting node %v \n", ids.GetID())
+	config := config.GetConfig()
 	node := new(node)
-	node.id = config.ID
-	node.config = config
+	node.id = ids.GetID()
 
-	node.Socket = netwrk.NewSocket(config.ID, config.Addrs, config.Transport, config.Codec)
-	node.Store = key_value.NewStore(config)
+	node.Socket = netwrk.NewSocket(ids.GetID(), config.Addrs, config.Transport, config.Codec)
+	node.Store = key_value.NewStore()
 	node.MessageChan = make(chan interface{}, config.ChanBufferSize)
 	node.handles = make(map[string]reflect.Value)
 
@@ -91,9 +88,6 @@ func (n *node) ID() ids.ID {
 	return n.id
 }
 
-func (n *node) Config() config.Config {
-	return n.config
-}
 
 func (n *node) Retry(r Request) {
 	n.MessageChan <- r
@@ -227,7 +221,7 @@ func (n *node) serve() {
 		}
 	})
 	// http string should be in form of ":8080"
-	url, _ := url.Parse(n.config.HTTPAddrs[n.id])
+	url, _ := url.Parse(config.GetConfig().HTTPAddrs[n.id])
 	port := ":" + url.Port()
 	err := http.ListenAndServe(port, mux)
 	if err != nil {
@@ -266,7 +260,7 @@ func (n *node) ForwardTx(id ids.ID, tx Transaction) {
 func (n *node) Forward(id ids.ID, m Request) {
 	key := m.Command.Key
 	table := m.Command.Table
-	url := n.config.HTTPAddrs[id] + "/"+ table + "/" + string(key)
+	url := config.GetConfig().HTTPAddrs[id] + "/"+ table + "/" + string(key)
 
 	log.Debugf("Node %v forwarding request %v to %s", n.ID(), m, url)
 	switch m.Command.Operation {

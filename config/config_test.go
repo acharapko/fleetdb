@@ -13,7 +13,7 @@ func TestConfig(t *testing.T) {
 	}
 
 	var c2 Config
-	err = c2.Load()
+	err = c2.load()
 	if err != nil {
 		t.Error(err)
 	}

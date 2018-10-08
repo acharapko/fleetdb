@@ -7,6 +7,7 @@ import (
 	"github.com/acharapko/fleetdb/log"
 	"strconv"
 	"github.com/acharapko/fleetdb/config"
+	"github.com/acharapko/fleetdb/ids"
 )
 
 var (
@@ -20,31 +21,30 @@ var (
 // StateMachine interface provides execution of command against database
 // the implementation should be thread safe
 type Store interface {
-	Execute(c Command) (Value, error)
+	Execute(c Command, ID ids.ID) (Value, error)
 }
 
 // database maintains the key-value datastore
 type database struct {
 	lock 		*sync.RWMutex
 	leveldbs    map[string] []*leveldb.DB  // map of leveldb shards
-	cfg 		config.Config
 }
 
 // NewStore get the instance of LevelDB Wrapper
-func NewStore(config config.Config) Store {
+func NewStore() Store {
+	log.Infof("Starting KV-store at node %v \n", ids.GetID())
 	db := new(database)
 	db.lock = new(sync.RWMutex)
-	db.cfg = config
 	db.leveldbs = make(map[string] []*leveldb.DB)
 	return db
 }
 
-func (db *database) getStore(name string) []*leveldb.DB{
+func (db *database) getStore(name string, ID ids.ID) []*leveldb.DB{
 	storedbs := db.leveldbs[name]
 	if storedbs == nil {
 		storedbs = make([]*leveldb.DB, 0)
-		for i, dir := range db.cfg.LevelDBDir {
-			lvlDBName := dir + "/" + name + "/" + strconv.Itoa(db.cfg.ID.Zone()) + "." + strconv.Itoa(db.cfg.ID.Node())+ "." + strconv.Itoa(i)
+		for i, dir := range config.GetConfig().LevelDBDir {
+			lvlDBName := dir + "/" + name + "/" + strconv.Itoa(ID.Zone()) + "." + strconv.Itoa(ID.Node())+ "." + strconv.Itoa(i)
 			lvldb, err := leveldb.OpenFile(lvlDBName,nil)
 			if err != nil {
 				log.Fatal("Error opening LevelDB store: " + lvlDBName)
@@ -58,9 +58,10 @@ func (db *database) getStore(name string) []*leveldb.DB{
 }
 
 
-func (db *database) Execute(c Command) (Value, error) {
+func (db *database) Execute(c Command, ID ids.ID) (Value, error) {
 	//log.Debugf("Executing Command %v\n", c)
-	storedbs := db.getStore(c.Table)
+	storedbs := db.getStore(c.Table, ID)
+
 	lvldb := storedbs[c.Key.Bucket(len(storedbs))]
 	switch c.Operation {
 	case PUT:

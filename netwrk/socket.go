@@ -36,11 +36,13 @@ type socket struct {
 }
 
 func NewSocket(id ids.ID, addrs map[ids.ID]string, transport, codec string) Socket {
+	log.Infof("Starting network layer at node %v \n", ids.GetID())
 	socket := new(socket)
 	socket.id = id
 	socket.nodes = make(map[ids.ID]Transport)
 	socket.codec = NewCodec(codec)
 
+	log.Infof("Starting listening at %v \n", addrs[id])
 	socket.nodes[id] = NewTransport(transport + "://" + addrs[id])
 	go socket.nodes[id].Listen()
 
@@ -55,6 +57,7 @@ func NewSocket(id ids.ID, addrs map[ids.ID]string, transport, codec string) Sock
 		}
 		socket.nodes[id] = t
 	}
+	log.Infof("Started network layer at node %v \n", ids.GetID())
 	return socket
 }
 

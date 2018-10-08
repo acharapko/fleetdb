@@ -52,26 +52,15 @@ func (d *db) TxWrite(ks []int, v []key_value.Value) bool {
 	}
 
 	return d.c.PutTx(bkeys, vals, tbls)
-
 }
 
 func main() {
 	flag.Parse()
-
+	config.LoadConfig() // load config from file
 	id := ids.GetID()
-
-	var cfg config.Config
-	if *master == "" {
-		cfg = config.NewConfig(id)
-		log.Infof("Starting Benchmark %s \n", id)
-	} else {
-		cfg = config.ConnectToMaster(*master, true, id)
-		log.Infof("Received config %s\n", cfg)
-	}
-
+	log.Infof("Starting Benchmark %s \n", id)
 	d := new(db)
-	d.c = fleetdb.NewClient(cfg)
-
+	d.c = fleetdb.NewClient()
 	b := fleetdb.NewBenchmarker(d)
 	b.Load()
 	log.Infof("Benchmarker runs with concurrency = %d", b.Concurrency)

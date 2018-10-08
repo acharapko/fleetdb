@@ -12,7 +12,7 @@ func init() {
 	gob.Register(ProximityPingResponse{})
 }
 
-// Load Gossip
+// load Gossip
 type GossipBalance struct {
 	Items int
 	From   ids.ID

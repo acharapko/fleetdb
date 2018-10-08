@@ -11,40 +11,26 @@ import (
 )
 
 var master = flag.String("master", "", "Master address.")
-
-var simulation = flag.Bool("simulation", false, "Mocking network by chan and goroutine.")
 var n = flag.Int("n", 3, "number of servers in each zone")
-var memprof = flag.String("memprof", "", "write memory profile to this file")
-
 var m = flag.Int("m", 3, "number of zones")
 
-func replica(id ids.ID) {
-	var cfg config.Config
-	if *master == "" {
-		cfg = config.NewConfig(id)
-		log.Info("No Master config")
-	} else {
-		cfg = config.ConnectToMaster(*master, false, id)
-		log.Info("Master config")
-	}
+var memprof = flag.String("memprof", "", "write memory profile to this file")
 
-	if *simulation {
-		cfg.Transport = "chan"
-	}
-
-	log.Infof("server %v starting\n", cfg.ID)
-
-	dbInstance := db_node.NewDBNode(cfg)
+func replica() {
+	log.Infof("Server %v starting\n", ids.GetID())
+	config.LoadConfig() // load config upon startup of a replica
+	log.Infof("leveldb: %v \n", config.GetConfig().LevelDBDir)
+	log.Infof("quorum: %v \n", config.GetConfig().Quorum)
+	dbInstance := db_node.NewDBNode() // start a DB Node
 	if memprof != nil {
 		dbInstance.SetMemProfile(*memprof)
 	}
-	dbInstance.Run();
 
-	log.Infof("server %v started\n", cfg.ID)
+	dbInstance.Run(); // run the DB node
+	log.Infof("server %v started\n", ids.GetID())
 }
 
 func main() {
 	flag.Parse()
-	id := ids.GetID()
-	replica(id)
+	replica()
 }

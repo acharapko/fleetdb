@@ -28,9 +28,11 @@ type Replica struct {
 	txexec sync.RWMutex
 }
 
-func NewReplica(config config.Config) *Replica {
+func NewReplica() *Replica {
+	log.Infof("Creating WPaxos replica at node id = %v \n", ids.GetID())
+	config := config.GetConfig()
 	r := new(Replica)
-	r.Node = fleetdb.NewNode(config)
+	r.Node = fleetdb.NewNode()
 	//r.paxi = make(map[string]*Paxos)
 	r.tables = make(map[string]*Table)
 	r.txs = make(map[ids.TXID] *fleetdb.Transaction)
@@ -56,7 +58,7 @@ func NewReplica(config config.Config) *Replica {
 
 	NumZones = len(zones)
 	NumNodes = len(config.Addrs)
-	NumLocalNodes = zones[config.ID.Zone()]
+	NumLocalNodes = zones[r.ID().Zone()]
 	Migration_majority = config.Migration_maj
 	F = config.F
 	QuorumType = config.Quorum

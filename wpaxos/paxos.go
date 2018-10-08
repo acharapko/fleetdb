@@ -14,6 +14,7 @@ import (
 	"github.com/acharapko/fleetdb/ids"
 	"github.com/acharapko/fleetdb/utils"
 	"math/rand"
+	"github.com/acharapko/fleetdb/config"
 )
 
 var (
@@ -74,7 +75,7 @@ type Paxos struct {
 
 // NewPaxos creates new paxos instance
 func NewPaxos(n fleetdb.Node, key key_value.Key, table *string) *Paxos {
-	plog := make(map[int]*entry, n.Config().BufferSize)
+	plog := make(map[int]*entry, config.GetConfig().BufferSize)
 	//log[0] = &entry{}
 	p := &Paxos{
 		Node:            n,
@@ -83,7 +84,7 @@ func NewPaxos(n fleetdb.Node, key key_value.Key, table *string) *Paxos {
 		lastMutate:		 0,
 		Key:             key,
 		Table:			 table,
-		txLeaseDuration: time.Duration(n.Config().TX_lease) * time.Millisecond,
+		txLeaseDuration: time.Duration(config.GetConfig().TX_lease) * time.Millisecond,
 		quorum:          NewQuorum(),
 		requests:        make([]*fleetdb.Request, 0),
 		Token:			 make(chan bool, 1),
@@ -644,7 +645,7 @@ func (p *Paxos) Exec() {
 			p.execute++
 		} else {
 			if e.tx == nil || e.command.Operation == key_value.NOOP  {
-				value, err := p.Execute(e.command)
+				value, err := p.Execute(e.command, p.ID())
 				if err == nil {
 					if e.request != nil {
 						e.request.Reply(fleetdb.Reply{
@@ -694,7 +695,7 @@ func (p* Paxos) ExecTXCmd() key_value.Value {
 	e, ok := p.log[p.execute]
 	if ok {
 		log.Debugf("ABOUT TO Execute CMD %v\n", e.command)
-		value, err := p.Execute(e.command)
+		value, err := p.Execute(e.command, p.ID())
 		if err == nil {
 			e.executed = true
 			//Clean up the log after execute
@@ -723,11 +724,11 @@ func (p *Paxos) cleanLog(slotNum int) {
 	}
 	if len(p.log) == 0 {
 		//log.Debug("Clean ZERO")
-		p.log = make(map[int]*entry, p.Config().BufferSize)
+		p.log = make(map[int]*entry, config.GetConfig().BufferSize)
 	}
 	if len(p.log) == 1 {
 		//log.Debug("Clean UNO")
-		tempLog := make(map[int]*entry, p.Config().BufferSize)
+		tempLog := make(map[int]*entry, config.GetConfig().BufferSize)
 		for s, _ := range p.log {
 			tempLog[s] = p.log[s]
 		}
@@ -737,9 +738,6 @@ func (p *Paxos) cleanLog(slotNum int) {
 
 func (p *Paxos) HasTXLease(txtime int64) bool {
 	if p.txLease != 0 {
-		/*if p.txTime == 0 {
-			log.Errorf("txtime is 0 in lease \n")
-		}*/
 		t := p.txLeaseStart.Add(p.txLeaseDuration)
 		if t.After(time.Now()) && (p.txTime <= txtime || txtime == 0) {
 			return true

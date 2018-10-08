@@ -159,7 +159,7 @@ func (l LeaderChange) String() string {
 	return fmt.Sprintf("LeaderChange {Key=%s, Table=%s, from=%s, to=%s, bal=%d}", string(l.Key), l.Table, l.From, l.To, l.Ballot)
 }
 
-// Load Gossip
+// load Gossip
 
 type GossipBalance struct {
 	Items int64
