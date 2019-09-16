@@ -1,4 +1,4 @@
-package key_value
+package kv_store
 
 
 type Value []byte

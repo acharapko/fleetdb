@@ -16,7 +16,7 @@ import (
 	"time"
 	"sync/atomic"
 	"strings"
-	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/kv_store"
 	"github.com/acharapko/fleetdb/ids"
 	"github.com/acharapko/fleetdb/netwrk"
 	"github.com/acharapko/fleetdb/config"
@@ -32,7 +32,7 @@ var (
 // it includes networking, state machine and RESTful API server
 type Node interface {
 	netwrk.Socket
-	key_value.Store
+	kv_store.Store
 	ID() ids.ID
 	Run()
 	Retry(r Request)
@@ -47,7 +47,7 @@ type node struct {
 	id     ids.ID
 	txCount int32
 	netwrk.Socket
-	key_value.Store
+	kv_store.Store
 	MessageChan chan interface{}
 	handles     map[string]reflect.Value
 }
@@ -60,7 +60,7 @@ func NewNode() Node {
 	node.id = ids.GetID()
 
 	node.Socket = netwrk.NewSocket(ids.GetID(), config.Addrs, config.Transport, config.Codec)
-	node.Store = key_value.NewStore()
+	node.Store = kv_store.NewStore()
 	node.MessageChan = make(chan interface{}, config.ChanBufferSize)
 	node.handles = make(map[string]reflect.Value)
 
@@ -130,7 +130,7 @@ func (n *node) serveRequest(r *http.Request, w http.ResponseWriter) {
 
 	switch r.Method {
 	case http.MethodGet:
-		req.Command = key_value.Command{table,key, nil, clientID, commandID, key_value.GET}
+		req.Command = kv_store.Command{table,key, nil, clientID, commandID, kv_store.GET}
 	case http.MethodPut, http.MethodPost:
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
@@ -138,9 +138,9 @@ func (n *node) serveRequest(r *http.Request, w http.ResponseWriter) {
 			http.Error(w, "cannot read body", http.StatusBadRequest)
 			return
 		}
-		req.Command = key_value.Command{"test", key, key_value.Value(body), clientID, commandID, key_value.PUT}
+		req.Command = kv_store.Command{"test", key, kv_store.Value(body), clientID, commandID, kv_store.PUT}
 	case http.MethodDelete:
-		req.Command = key_value.Command{"test", key, nil, clientID, commandID, key_value.DELETE}
+		req.Command = kv_store.Command{"test", key, nil, clientID, commandID, kv_store.DELETE}
 	}
 
 	n.MessageChan <- req
@@ -148,8 +148,8 @@ func (n *node) serveRequest(r *http.Request, w http.ResponseWriter) {
 	reply := <-req.C
 
 	if reply.Err != nil {
-		if r.Method == http.MethodGet && reply.Err == key_value.ErrNotFound {
-			http.Error(w, key_value.ErrNotFound.Error(), http.StatusNotFound)
+		if r.Method == http.MethodGet && reply.Err == kv_store.ErrNotFound {
+			http.Error(w, kv_store.ErrNotFound.Error(), http.StatusNotFound)
 		} else {
 			http.Error(w, reply.Err.Error(), http.StatusInternalServerError)
 		}
@@ -264,7 +264,7 @@ func (n *node) Forward(id ids.ID, m Request) {
 
 	log.Debugf("Node %v forwarding request %v to %s", n.ID(), m, url)
 	switch m.Command.Operation {
-	case key_value.GET:
+	case kv_store.GET:
 		req, err := http.NewRequest(http.MethodGet, url, nil)
 		if err != nil {
 			log.Errorln(err)
@@ -290,10 +290,10 @@ func (n *node) Forward(id ids.ID, m Request) {
 		if rep.StatusCode == http.StatusOK {
 			b, _ := ioutil.ReadAll(rep.Body)
 			cmd := m.Command
-			cmd.Value = key_value.Value(b)
+			cmd.Value = kv_store.Value(b)
 			m.Reply(Reply{
-				Command:   cmd,
-				Value: key_value.Value(b),
+				Command: cmd,
+				Value:   kv_store.Value(b),
 			})
 		} else if rep.StatusCode == http.StatusNotFound {
 			m.Reply(Reply{
@@ -302,7 +302,7 @@ func (n *node) Forward(id ids.ID, m Request) {
 			})
 		}
 		log.Debugf("Get Forward Done: %s", rep.Status)
-	case key_value.PUT:
+	case kv_store.PUT:
 		req, err := http.NewRequest(http.MethodPut, url, bytes.NewBuffer(m.Command.Value))
 		if err != nil {
 			log.Errorln(err)
@@ -331,7 +331,7 @@ func (n *node) Forward(id ids.ID, m Request) {
 			})
 		}
 		log.Debugf("Put Forward Done: %s", rep.Status)
-	case key_value.DELETE:
+	case kv_store.DELETE:
 		req, err := http.NewRequest(http.MethodDelete, url, nil)
 		if err != nil {
 			log.Errorln(err)

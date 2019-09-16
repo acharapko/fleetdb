@@ -10,7 +10,7 @@ import (
 	//"runtime/debug"
 	"errors"
 	"sort"
-	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/kv_store"
 	"github.com/acharapko/fleetdb/ids"
 	"github.com/acharapko/fleetdb/utils"
 	"math/rand"
@@ -23,10 +23,10 @@ var (
 
 // entry in log
 type entry struct {
-	ballot    Ballot
-	command   key_value.Command
-	commit    bool
-	executed  bool
+	ballot   Ballot
+	command  kv_store.Command
+	commit   bool
+	executed bool
 
 	tx        *fleetdb.Transaction
 	request   *fleetdb.Request
@@ -45,8 +45,8 @@ func (e entry) String() string {
 type Paxos struct {
 	fleetdb.Node
 
-	Table			*string
-	Key 			key_value.Key
+	Table *string
+	Key   kv_store.Key
 
 	log     		map[int]*entry  // log ordered by slot
 	execute 		int             // next execute slot number
@@ -74,7 +74,7 @@ type Paxos struct {
 }
 
 // NewPaxos creates new paxos instance
-func NewPaxos(n fleetdb.Node, key key_value.Key, table *string) *Paxos {
+func NewPaxos(n fleetdb.Node, key kv_store.Key, table *string) *Paxos {
 	plog := make(map[int]*entry, config.Instance.BufferSize)
 	//log[0] = &entry{}
 	p := &Paxos{
@@ -229,7 +229,7 @@ func (p *Paxos) P2a(r *fleetdb.Request) {
 	p.RBroadcast(p.ID().Zone(), &m)
 }
 
-func (p *Paxos) P2aFillSlot(cmd key_value.Command, req *fleetdb.Request, tx *fleetdb.Transaction) {
+func (p *Paxos) P2aFillSlot(cmd kv_store.Command, req *fleetdb.Request, tx *fleetdb.Transaction) {
 	p.slot++
 	e :=  &entry{
 		ballot:    p.ballot,
@@ -261,7 +261,7 @@ func (p *Paxos) HandleP1a(m Prepare) {
 			continue
 		}
 
-		if p.log[s].command.Operation == key_value.TX_LEASE && !p.log[s].executed {
+		if p.log[s].command.Operation == kv_store.TX_LEASE && !p.log[s].executed {
 			// we are giving away unexecuted TX lease, so abort that TX
 			// in essence we want ot sent the reply to channel waiting for all leases, so we do not block.
 			// upon starting phase2, however the system will catch that we do not own an object and abort
@@ -355,7 +355,7 @@ func (p *Paxos) update(scb map[int]CommandBallot, mID ids.ID) {
 						if cb.Committed {
 							e.tx = &cb.Tx //we can try to recover
 						} else {
-							e.command.Operation = key_value.NOOP //we stole uncommitted TX slot
+							e.command.Operation = kv_store.NOOP //we stole uncommitted TX slot
 						}
 					} else {
 						e.tx = nil
@@ -379,7 +379,7 @@ func (p *Paxos) update(scb map[int]CommandBallot, mID ids.ID) {
 					if cb.Committed {
 						e.tx = &cb.Tx //we can try to recover
 					} else {
-						e.command.Operation = key_value.NOOP //we stole uncommitted TX slot
+						e.command.Operation = kv_store.NOOP //we stole uncommitted TX slot
 					}
 				} else {
 					e.tx = nil
@@ -613,7 +613,7 @@ func (p *Paxos) SlotNOOP(slot int) {
 	p.GetAccessToken()
 	defer p.ReleaseAccessToken()
 
-	p.log[slot].command.Operation = key_value.NOOP
+	p.log[slot].command.Operation = kv_store.NOOP
 	p.log[slot].commit = true
 }
 
@@ -632,7 +632,7 @@ func (p *Paxos) Exec() {
 
 		log.Debugf("Replica %s execute s=%d for key=%v [e=%v]\n", p.ID(), p.execute, string(p.Key), e)
 
-		if e.command.Operation == key_value.TX_LEASE  {
+		if e.command.Operation == kv_store.TX_LEASE  {
 			txid := binary.LittleEndian.Uint64(e.command.Value)
 			p.setLease(e.timestamp, ids.TXID(txid))
 			if e.request != nil {
@@ -644,7 +644,7 @@ func (p *Paxos) Exec() {
 			e.executed = true
 			p.execute++
 		} else {
-			if e.tx == nil || e.command.Operation == key_value.NOOP  {
+			if e.tx == nil || e.command.Operation == kv_store.NOOP  {
 				value, err := p.Execute(e.command, p.ID())
 				if err == nil {
 					if e.request != nil {
@@ -658,7 +658,7 @@ func (p *Paxos) Exec() {
 
 				} else {
 					//log.Errorln(err)
-					if err != key_value.ErrNotFound {
+					if err != kv_store.ErrNotFound {
 						log.Errorf("Exec Error {entry = %v}: %s\n", e, err)
 					}
 					if e.request != nil {
@@ -672,7 +672,7 @@ func (p *Paxos) Exec() {
 				}
 				//Clean up the log after execute
 				e.executed = true
-				if value == nil && e.command.Operation != key_value.NOOP {
+				if value == nil && e.command.Operation != kv_store.NOOP {
 					p.lastMutate = p.execute
 					p.cleanLog(p.execute - 1)
 				}
@@ -690,7 +690,7 @@ func (p *Paxos) Exec() {
 	}
 }
 
-func (p* Paxos) ExecTXCmd() key_value.Value {
+func (p* Paxos) ExecTXCmd() kv_store.Value {
 	log.Debugf("PREP TO Execute CMD on slot %d\n", p.execute)
 	e, ok := p.log[p.execute]
 	if ok {
@@ -699,7 +699,7 @@ func (p* Paxos) ExecTXCmd() key_value.Value {
 		if err == nil {
 			e.executed = true
 			//Clean up the log after execute
-			if value == nil && e.command.Operation != key_value.NOOP {
+			if value == nil && e.command.Operation != kv_store.NOOP {
 				p.lastMutate = p.execute
 				p.cleanLog(p.execute - 1)
 			}
@@ -764,7 +764,7 @@ func (p *Paxos) setLease(t int64, txid ids.TXID) {
 
 func (p *Paxos) forward() {
 	for _, m := range p.requests {
-		if m.Command.Operation == key_value.TX_LEASE {
+		if m.Command.Operation == kv_store.TX_LEASE {
 			// we are giving up on a transaction, since we did not even get a chance to put LEASE onto a log
 			log.Debugf("Forward and TX_LEASE - Abort TX")
 			if m != nil {

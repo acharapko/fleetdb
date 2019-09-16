@@ -5,7 +5,6 @@ import (
 
 	"github.com/acharapko/fleetdb/log"
 	"github.com/acharapko/fleetdb/db_node"
-
 	"github.com/acharapko/fleetdb/ids"
 	"github.com/acharapko/fleetdb/config"
 )
@@ -18,7 +17,6 @@ var memprof = flag.String("memprof", "", "write memory profile to this file")
 
 func replica() {
 	log.Infof("Server %v starting\n", ids.GetID())
-	config.LoadConfig() // load config upon startup of a replica
 	log.Infof("leveldb: %v \n", config.Instance.LevelDBDir)
 	log.Infof("quorum: %v \n", config.Instance.Quorum)
 	dbInstance := db_node.NewDBNode() // start a DB Node

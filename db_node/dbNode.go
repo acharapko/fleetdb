@@ -3,13 +3,13 @@ package db_node
 import (
 	"time"
 	"github.com/acharapko/fleetdb"
-	"github.com/acharapko/fleetdb/wpaxos"
+	"github.com/acharapko/fleetdb/replication/wpaxos"
 	"github.com/acharapko/fleetdb/log"
 	"sort"
 	"sync"
 	"os"
 	"runtime/pprof"
-	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/kv_store"
 	"github.com/acharapko/fleetdb/ids"
 	"github.com/acharapko/fleetdb/config"
 	"github.com/acharapko/fleetdb/utils"
@@ -242,9 +242,9 @@ func (db *DBNode) processLeaderChange(to ids.ID, p *wpaxos.Paxos) {
 }
 
 type evictionNotice struct {
-	key 	key_value.Key
-	table 	string
-	dest 	ids.ID
+	key   kv_store.Key
+	table string
+	dest  ids.ID
 }
 
 func (db *DBNode) findEvictKey(table string) *evictionNotice {
@@ -415,7 +415,7 @@ func (db *DBNode) handleTransaction(m fleetdb.Transaction) {
 }
 
 
-func (db *DBNode) pickNodeForTX(commands [] key_value.Command) ids.ID {
+func (db *DBNode) pickNodeForTX(commands [] kv_store.Command) ids.ID {
 
 	leaderMap := make(map[ids.ID]int)
 	for _, cmd := range commands {

@@ -9,9 +9,8 @@ import (
 	"os"
 	"strings"
 	"strconv"
-	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/kv_store"
 	"github.com/acharapko/fleetdb/ids"
-	"github.com/acharapko/fleetdb/config"
 	"github.com/acharapko/fleetdb"
 )
 
@@ -22,7 +21,6 @@ type consoleClient struct {
 
 func main() {
 	flag.Parse()
-	config.LoadConfig()
 	id := ids.GetID()
 
 	cc := new(consoleClient)
@@ -47,7 +45,7 @@ func (cc *consoleClient) generateRandVal(n int) []byte {
 func (cc *consoleClient) putKeys(fromK, toK, n int) {
 	for k := fromK; k <= toK; k++ {
 		v := cc.generateRandVal(n)
-		cc.client.Put(key_value.Key([]byte(strconv.Itoa(k))), v, "test")
+		cc.client.Put(kv_store.Key([]byte(strconv.Itoa(k))), v, "test")
 	}
 }
 
@@ -92,7 +90,7 @@ func (cc *consoleClient) RunConsole() {
 					if len(parts) >= 3 {
 						val := strings.Join(parts[2:len(parts)], " ")
 						fmt.Println(keyStr + " -> " + val)
-						cc.client.Put(key_value.Key([]byte(keyStr)), []byte(val), "test")
+						cc.client.Put(kv_store.Key([]byte(keyStr)), []byte(val), "test")
 					} else {
 						fmt.Println("Put command error. Must be in format: put key value")
 					}
@@ -100,15 +98,15 @@ func (cc *consoleClient) RunConsole() {
 					if len(parts) >= 3 {
 						numK := (len(parts) - 1) / 2
 
-						keys := make([]key_value.Key, numK)
-						vals := make([]key_value.Value, numK)
+						keys := make([]kv_store.Key, numK)
+						vals := make([]kv_store.Value, numK)
 						tbls := make([]string, numK)
 						for i := 1; i < len(parts); i+=2 {
 							keyStr := parts[i]
 							val := parts[i+1]
 							fmt.Println(keyStr + " -> " + val)
-							keys[(i-1) / 2] = key_value.Key([]byte(keyStr))
-							vals[(i-1) / 2] = key_value.Value([]byte(val))
+							keys[(i-1) / 2] = kv_store.Key([]byte(keyStr))
+							vals[(i-1) / 2] = kv_store.Value([]byte(val))
 							tbls[(i-1) / 2] = "test"
 						}
 						cc.client.PutTx(keys, vals, tbls)
@@ -120,12 +118,12 @@ func (cc *consoleClient) RunConsole() {
 						val := parts[2]
 						key2 := parts[3]
 						fmt.Println(keyStr + " -> " + val)
-						keys := make([]key_value.Key, 2)
-						vals := make([]key_value.Value, 1)
-						keys[0] = key_value.Key([]byte(keyStr))
-						keys[1] = key_value.Key([]byte(key2))
+						keys := make([]kv_store.Key, 2)
+						vals := make([]kv_store.Value, 1)
+						keys[0] = kv_store.Key([]byte(keyStr))
+						keys[1] = kv_store.Key([]byte(key2))
 						cc.client.PrepTx()
-						vals[0] = key_value.Value([]byte(val))
+						vals[0] = kv_store.Value([]byte(val))
 						cc.client.AddTxPut(keys[0], vals[0], "test")
 						cc.client.AddTxGet(keys[1], "test")
 						cc.client.SendTX()
@@ -133,9 +131,9 @@ func (cc *consoleClient) RunConsole() {
 						fmt.Println("Puttx command error. Must be in format: puttx key value ...")
 					}
 				case "delete":
-					cc.client.Delete(key_value.Key([]byte(keyStr)), "test")
+					cc.client.Delete(kv_store.Key([]byte(keyStr)), "test")
 				case "get":
-					retVal := cc.client.Get(key_value.Key([]byte(keyStr)), "test")
+					retVal := cc.client.Get(kv_store.Key([]byte(keyStr)), "test")
 					retValStr := string(retVal)
 					fmt.Println(retValStr)
 				}

@@ -4,7 +4,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"github.com/acharapko/fleetdb/log"
-	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/kv_store"
 	"github.com/acharapko/fleetdb/ids"
 	"github.com/acharapko/fleetdb/config"
 )
@@ -25,7 +25,7 @@ func init() {
 
 // Request is bench reqeust with http response channel
 type Request struct {
-	Command   key_value.Command
+	Command   kv_store.Command
 	Timestamp int64
 
 	C chan Reply
@@ -42,8 +42,8 @@ func (r Request) String() string {
 
 // Reply includes all info that might replies to back the client for the corresponding request
 type Reply struct {
-	Command   key_value.Command
-	Value 	  key_value.Value
+	Command   kv_store.Command
+	Value     kv_store.Value
 	Timestamp int64
 	Err       error
 }
@@ -56,7 +56,7 @@ func (r Reply) String() string {
 // key without go through replication protocol in Replica
 type Read struct {
 	CommandID ids.CommandID
-	Key       key_value.Key
+	Key       kv_store.Key
 }
 
 func (r Read) String() string {
@@ -66,7 +66,7 @@ func (r Read) String() string {
 // ReadReply cid and value of reading key
 type ReadReply struct {
 	CommandID ids.CommandID
-	Value     key_value.Value
+	Value     kv_store.Value
 }
 
 func (r ReadReply) String() string {
@@ -77,8 +77,8 @@ func (r ReadReply) String() string {
 type Transaction struct {
 	TxID ids.TXID
 	CommandID	ids.CommandID
-	Commands  	[]key_value.Command
-	CmdMeta 	[]key_value.TxCommandMeta
+	Commands  	[]kv_store.Command
+	CmdMeta 	[]kv_store.TxCommandMeta
 
 	ClientID  ids.ID
 
@@ -89,12 +89,12 @@ type Transaction struct {
 	execChan  chan TxExec
 }
 
-func NewInProgressTX(TxID ids.TXID, cmds []key_value.Command, s []int) *Transaction {
+func NewInProgressTX(TxID ids.TXID, cmds []kv_store.Command, s []int) *Transaction {
 
-	cmdMetas := make([]key_value.TxCommandMeta, len(cmds))
+	cmdMetas := make([]kv_store.TxCommandMeta, len(cmds))
 
 	for i, slot := range s {
-		cmdMeta := key_value.TxCommandMeta{false, false, slot}
+		cmdMeta := kv_store.TxCommandMeta{false, false, slot}
 		cmdMetas[i] = cmdMeta
 	}
 
@@ -108,10 +108,10 @@ func NewInProgressTX(TxID ids.TXID, cmds []key_value.Command, s []int) *Transact
 }
 
 func (t *Transaction) MakeCommittedWaitingFlags(slots []int) {
-	cmdMetas := make([]key_value.TxCommandMeta, len(slots))
+	cmdMetas := make([]kv_store.TxCommandMeta, len(slots))
 
 	for i := 0; i < len(slots); i++ {
-		cmdMeta := key_value.TxCommandMeta{false, false, slots[i]}
+		cmdMeta := kv_store.TxCommandMeta{false, false, slots[i]}
 		cmdMetas[i] = cmdMeta
 	}
 	t.CmdMeta = cmdMetas
@@ -130,7 +130,7 @@ func (r *Transaction) Reply(reply TransactionReply) {
 }
 
 // Reply replies to the current request
-func (r *Transaction) ReadyToExec(slot int, key key_value.Key) {
+func (r *Transaction) ReadyToExec(slot int, key kv_store.Key) {
 	if r.execChan != nil {
 		r.execChan <- TxExec{Slotnum: slot, Key: key}
 	}
@@ -166,7 +166,7 @@ func (tx *Transaction) AreAllCommitted() bool  {
 	return true
 }
 
-func (tx *Transaction) MarkCommitted(key key_value.Key) {
+func (tx *Transaction) MarkCommitted(key kv_store.Key) {
 	log.Debugf("Marking Committed: len(meta) = %d\n", len(tx.CmdMeta))
 	for i, cmd := range tx.Commands {
 		if cmd.Key.B64() == key.B64() && !tx.CmdMeta[i].CmdCommitted {
@@ -185,7 +185,7 @@ func (tx *Transaction) AreAllWaiting() bool  {
 	return true
 }
 
-func (tx *Transaction) MarkWaiting(key key_value.Key) {
+func (tx *Transaction) MarkWaiting(key kv_store.Key) {
 	log.Debugf("Marking Waiting key %v in TX %v\n", string(key), tx.TxID)
 	for i, cmd := range tx.Commands {
 		if cmd.Key.B64() == key.B64() && !tx.CmdMeta[i].CmdWaitingExec {
@@ -201,14 +201,14 @@ type TransactionReply struct {
 	CommandID ids.CommandID
 	LeaderID  ids.ID
 	ClientID  ids.ID
-	Commands  []key_value.Command
+	Commands  []kv_store.Command
 	Timestamp int64
 	Err       error
 }
 
 type TxExec struct {
-	Slotnum		int
-	Key			key_value.Key
+	Slotnum int
+	Key     kv_store.Key
 }
 
 func (r TxExec) String() string {

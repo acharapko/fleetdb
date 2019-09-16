@@ -9,15 +9,15 @@ import (
 	"time"
 
 	"github.com/acharapko/fleetdb/log"
-	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/kv_store"
 	"github.com/acharapko/fleetdb/utils"
 )
 
 type DB interface {
 	Init()
-	Read(key int) key_value.Value
+	Read(key int) kv_store.Value
 	Write(key int, value []byte)
-	TxWrite(key []int, value []key_value.Value) bool
+	TxWrite(key []int, value []kv_store.Value) bool
 	WriteStr(key int, value string)
 
 	Stop()
@@ -229,7 +229,7 @@ func (b *Benchmarker) worker(keys <-chan int, results chan<- time.Duration) {
 			if rand.Intn(100) < b.TW {
 				cmdCount = b.TXS
 				keys := make([]int, b.TXS)
-				vals := make([]key_value.Value, b.TXS)
+				vals := make([]kv_store.Value, b.TXS)
 
 				keys[0] = k
 

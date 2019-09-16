@@ -4,10 +4,9 @@ import (
 	"flag"
 	"github.com/acharapko/fleetdb"
 	"github.com/acharapko/fleetdb/log"
-	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/kv_store"
 	"strconv"
 	"github.com/acharapko/fleetdb/ids"
-	"github.com/acharapko/fleetdb/config"
 )
 
 var master = flag.String("master", "", "Master address.")
@@ -25,29 +24,29 @@ func (d *db) Stop() {
 	d.c.Stop()
 }
 
-func (d *db) Read(k int) key_value.Value {
+func (d *db) Read(k int) kv_store.Value {
 	key := []byte(strconv.Itoa(k))
-	v := d.c.Get(key_value.Key(key), "test")
+	v := d.c.Get(kv_store.Key(key), "test")
 	return v
 }
 
 func (d *db) Write(k int, v []byte) {
 	key := []byte(strconv.Itoa(k))
-	d.c.Put(key_value.Key(key), key_value.Value(v), "test")
+	d.c.Put(kv_store.Key(key), kv_store.Value(v), "test")
 }
 
 func (d *db) WriteStr(k int, v string) {
 	d.Write(k, []byte(v))
 }
 
-func (d *db) TxWrite(ks []int, v []key_value.Value) bool {
-	bkeys := make([]key_value.Key, len(ks))
-	vals := make([]key_value.Value, len(ks))
+func (d *db) TxWrite(ks []int, v []kv_store.Value) bool {
+	bkeys := make([]kv_store.Key, len(ks))
+	vals := make([]kv_store.Value, len(ks))
 	tbls := make([]string, len(ks))
 	for i, k := range ks {
 		key := []byte(strconv.Itoa(k))
 		vals[i] = v[i]
-		bkeys[i] = key_value.Key(key)
+		bkeys[i] = kv_store.Key(key)
 		tbls[i] = "test"
 	}
 
@@ -56,7 +55,6 @@ func (d *db) TxWrite(ks []int, v []key_value.Value) bool {
 
 func main() {
 	flag.Parse()
-	config.LoadConfig() // load config from file
 	id := ids.GetID()
 	log.Infof("Starting Benchmark %s \n", id)
 	d := new(db)

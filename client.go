@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/acharapko/fleetdb/log"
-	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/kv_store"
 	"github.com/acharapko/fleetdb/ids"
 	"github.com/acharapko/fleetdb/config"
 )
@@ -27,7 +27,7 @@ type Client struct {
 	cid   ids.CommandID
 	txNum int
 
-	tempCmds []key_value.Command
+	tempCmds []kv_store.Command
 	results map[ids.CommandID]bool
 
 	sync.RWMutex
@@ -49,7 +49,7 @@ func NewClient() *Client {
 	return c
 }
 
-func (c *Client) getNodeID(key key_value.Key) ids.ID {
+func (c *Client) getNodeID(key kv_store.Key) ids.ID {
 	//TODO: select random node in the zone
 	id := ids.NewID(c.ID.Zone(), 1)
 
@@ -57,7 +57,7 @@ func (c *Client) getNodeID(key key_value.Key) ids.ID {
 }
 
 // RESTGet access server's REST API with url = http://ip:port/key
-func (c *Client) RESTGet(key key_value.Key, table string) key_value.Value {
+func (c *Client) RESTGet(key kv_store.Key, table string) kv_store.Value {
 	c.cid++
 	id := c.getNodeID(key)
 	url := c.http[id] + "/" + table + "/" + string(key)
@@ -80,8 +80,8 @@ func (c *Client) RESTGet(key key_value.Key, table string) key_value.Value {
 	defer rep.Body.Close()
 	if rep.StatusCode == http.StatusOK {
 		b, _ := ioutil.ReadAll(rep.Body)
-		log.Debugf("type=%s key=%v value=%x", "get", string(key), key_value.Value(b))
-		return key_value.Value(b)
+		log.Debugf("type=%s key=%v value=%x", "get", string(key), kv_store.Value(b))
+		return kv_store.Value(b)
 	}
 	dump, _ := httputil.DumpResponse(rep, true)
 	log.Debugf("%q", dump)
@@ -89,7 +89,7 @@ func (c *Client) RESTGet(key key_value.Key, table string) key_value.Value {
 }
 
 // RESTDelete access server's REST API with url = http://ip:port/key
-func (c *Client) RESTDelete(key key_value.Key, table string) bool {
+func (c *Client) RESTDelete(key kv_store.Key, table string) bool {
 	c.cid++
 	id := c.getNodeID(key)
 	url := c.http[id] + "/" + table + "/" + string(key)
@@ -118,7 +118,7 @@ func (c *Client) RESTDelete(key key_value.Key, table string) bool {
 }
 
 // RESTPut access server's REST API with url = http://ip:port/key and request body of value
-func (c *Client) RESTPut(key key_value.Key, value key_value.Value, table string) {
+func (c *Client) RESTPut(key kv_store.Key, value kv_store.Value, table string) {
 	c.cid++
 	id := c.getNodeID(key)
 	url := c.http[id] + "/" + table + "/" + string(key)
@@ -146,22 +146,22 @@ func (c *Client) RESTPut(key key_value.Key, value key_value.Value, table string)
 }
 
 // Get post json get request to server url
-func (c *Client) Get(key key_value.Key, table string) key_value.Value {
+func (c *Client) Get(key kv_store.Key, table string) kv_store.Value {
 	return c.RESTGet(key, table)
 }
 
 // Put post json request
-func (c *Client) Put(key key_value.Key, value key_value.Value, table string) {
+func (c *Client) Put(key kv_store.Key, value kv_store.Value, table string) {
 	c.RESTPut(key, value, table)
 }
 
 // Delete post json request
-func (c *Client) Delete(key key_value.Key, table string) {
+func (c *Client) Delete(key kv_store.Key, table string) {
 	c.RESTPut(key, nil, table)
 }
 
 // GetAsync do Get request in goroutine
-func (c *Client) GetAsync(key key_value.Key, table string) {
+func (c *Client) GetAsync(key kv_store.Key, table string) {
 	c.Add(1)
 	c.Lock()
 	c.results[c.cid+1] = false
@@ -170,7 +170,7 @@ func (c *Client) GetAsync(key key_value.Key, table string) {
 }
 
 // PutAsync do Put request in goroutine
-func (c *Client) PutAsync(key key_value.Key, value key_value.Value, table string) {
+func (c *Client) PutAsync(key kv_store.Key, value kv_store.Value, table string) {
 	c.Add(1)
 	c.Lock()
 	c.results[c.cid+1] = false
@@ -179,13 +179,13 @@ func (c *Client) PutAsync(key key_value.Key, value key_value.Value, table string
 }
 
 // Put post json request
-func (c *Client) PutTx(keys []key_value.Key, values []key_value.Value, tables []string) bool {
+func (c *Client) PutTx(keys []kv_store.Key, values []kv_store.Value, tables []string) bool {
 	c.txNum++
-	cmds := make([]key_value.Command, len(keys))
+	cmds := make([]kv_store.Command, len(keys))
 	cntr := 0
 	for i, k := range keys {
 		c.cid++
-		cmd := key_value.Command{tables[i], k, values[i],c.ID,c.cid, key_value.PUT }
+		cmd := kv_store.Command{tables[i], k, values[i],c.ID,c.cid, kv_store.PUT }
 		cmds[cntr] = cmd
 		cntr++
 	}
@@ -194,26 +194,26 @@ func (c *Client) PutTx(keys []key_value.Key, values []key_value.Value, tables []
 
 func (c *Client) PrepTx() {
 	c.txNum++
-	c.tempCmds = make([]key_value.Command, 0)
+	c.tempCmds = make([]kv_store.Command, 0)
 }
 
 // Add put for future TX
-func (c *Client) AddTxPut(key key_value.Key, value key_value.Value, table string) {
+func (c *Client) AddTxPut(key kv_store.Key, value kv_store.Value, table string) {
 	c.cid++
-	cmd := key_value.Command{table,key, value,c.ID,c.cid, key_value.PUT }
+	cmd := kv_store.Command{table,key, value,c.ID,c.cid, kv_store.PUT }
 	c.tempCmds = append(c.tempCmds, cmd)
 }
 
-func (c *Client) AddTxDelete(key key_value.Key, table string) {
+func (c *Client) AddTxDelete(key kv_store.Key, table string) {
 	c.cid++
-	cmd := key_value.Command{table,key, nil,c.ID,c.cid, key_value.DELETE }
+	cmd := kv_store.Command{table,key, nil,c.ID,c.cid, kv_store.DELETE }
 	c.tempCmds = append(c.tempCmds, cmd)
 }
 
 // Add get for future TX
-func (c *Client) AddTxGet(key key_value.Key, table string) {
+func (c *Client) AddTxGet(key kv_store.Key, table string) {
 	c.cid++
-	cmd := key_value.Command{table,key, nil,c.ID,c.cid, key_value.GET }
+	cmd := kv_store.Command{table,key, nil,c.ID,c.cid, kv_store.GET }
 
 	c.tempCmds = append(c.tempCmds, cmd)
 }
@@ -222,9 +222,9 @@ func (c *Client) SendTX() bool {
 	return c.JSONTX(c.tempCmds)
 }
 
-func (c *Client) JSONGet(key key_value.Key, table string) key_value.Value {
+func (c *Client) JSONGet(key kv_store.Key, table string) kv_store.Value {
 	c.cid++
-	cmd := key_value.Command{ table,key, nil, c.ID, c.cid, key_value.GET}
+	cmd := kv_store.Command{ table,key, nil, c.ID, c.cid, kv_store.GET}
 	req := new(Request)
 	req.Command = cmd
 	req.Timestamp = time.Now().UnixNano()
@@ -241,14 +241,14 @@ func (c *Client) JSONGet(key key_value.Key, table string) key_value.Value {
 	defer rep.Body.Close()
 	if rep.StatusCode == http.StatusOK {
 		b, _ := ioutil.ReadAll(rep.Body)
-		return key_value.Value(b)
+		return kv_store.Value(b)
 	}
 	return nil
 }
 
-func (c *Client) JSONPut(key key_value.Key, value key_value.Value, table string) {
+func (c *Client) JSONPut(key kv_store.Key, value kv_store.Value, table string) {
 	c.cid++
-	cmd := key_value.Command{table, key, value, c.ID,c.cid, key_value.PUT}
+	cmd := kv_store.Command{table, key, value, c.ID,c.cid, kv_store.PUT}
 	req := new(Request)
 	req.Command = cmd
 	req.Timestamp = time.Now().UnixNano()
@@ -268,7 +268,7 @@ func (c *Client) JSONPut(key key_value.Key, value key_value.Value, table string)
 	log.Debugf("%q", dump)
 }
 
-func (c *Client) JSONTX(commands []key_value.Command) bool {
+func (c *Client) JSONTX(commands []kv_store.Command) bool {
 	c.cid++
 	tx := new(Transaction)
 	tx.ClientID = c.ID

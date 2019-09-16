@@ -4,7 +4,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"github.com/acharapko/fleetdb"
-	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/kv_store"
 	"github.com/acharapko/fleetdb/ids"
 )
 
@@ -27,11 +27,11 @@ func init() {
 
 // Prepare phase 1a
 type Prepare struct {
-	Key 	key_value.Key
-	Table	string
-	Ballot  Ballot
-	txTime 	int64
-	Try 	int
+	Key    kv_store.Key
+	Table  string
+	Ballot Ballot
+	txTime int64
+	Try    int
 }
 
 func (p Prepare) String() string {
@@ -39,12 +39,12 @@ func (p Prepare) String() string {
 }
 
 type CommandBallot struct {
-	Command 	key_value.Command
-	Ballot  	Ballot
-	Executed	bool
-	Committed	bool
-	HasTx		bool
-	Tx			fleetdb.Transaction
+	Command   kv_store.Command
+	Ballot    Ballot
+	Executed  bool
+	Committed bool
+	HasTx     bool
+	Tx        fleetdb.Transaction
 }
 
 func (cb CommandBallot) String() string {
@@ -53,13 +53,13 @@ func (cb CommandBallot) String() string {
 
 // Promise phase 1b
 type Promise struct {
-	Key 		key_value.Key
-	Table		string
-	Ballot 		Ballot
-	ID     		ids.ID               // from node id
-	LPF	   		bool					//Lease Promise Failure
-	Try 		int
-	Log    		map[int]CommandBallot // log since last execute (includes last execute)
+	Key    kv_store.Key
+	Table  string
+	Ballot Ballot
+	ID     ids.ID               // from node id
+	LPF    bool					//Lease Promise Failure
+	Try    int
+	Log    map[int]CommandBallot // log since last execute (includes last execute)
 }
 
 func (p Promise) String() string {
@@ -68,11 +68,11 @@ func (p Promise) String() string {
 
 // Accept phase 2a
 type Accept struct {
-	Ballot  	Ballot
-	Slot    	int
-	EpochSlot 	int
-	Command 	key_value.Command
-	txtime 		int64
+	Ballot    Ballot
+	Slot      int
+	EpochSlot int
+	Command   kv_store.Command
+	txtime    int64
 }
 
 func (a Accept) String() string {
@@ -92,11 +92,11 @@ func (a AcceptTX) String() string {
 
 // Accepted phase 2b
 type Accepted struct {
-	Table	string
-	Key 	key_value.Key
-	Ballot 	Ballot
-	ID     	ids.ID // from node id
-	Slot   	int
+	Table  string
+	Key    kv_store.Key
+	Ballot Ballot
+	ID     ids.ID // from node id
+	Slot   int
 }
 
 func (a Accepted) String() string {
@@ -115,8 +115,8 @@ func (a AcceptedTX) String() string {
 
 // Commit phase 3
 type Commit struct {
-	Slot    	int
-	Command key_value.Command
+	Slot    int
+	Command kv_store.Command
 }
 
 func (c Commit) String() string {
@@ -125,9 +125,9 @@ func (c Commit) String() string {
 
 // Commit phase 3 - outside Q2
 type Exec struct {
-	Slot    	int
-	EpochSlot 	int
-	Command key_value.Command
+	Slot      int
+	EpochSlot int
+	Command   kv_store.Command
 }
 
 func (e Exec) String() string {
@@ -148,7 +148,7 @@ func (c CommitTX) String() string {
 
 // LeaderChange switch leader
 type LeaderChange struct {
-	Key    key_value.Key
+	Key    kv_store.Key
 	Table  string
 	To     ids.ID
 	From   ids.ID

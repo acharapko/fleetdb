@@ -6,7 +6,7 @@ import (
 	"time"
 	"sync"
 	"encoding/binary"
-	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/kv_store"
 	"github.com/acharapko/fleetdb/ids"
 	"github.com/acharapko/fleetdb/config"
 	"github.com/acharapko/fleetdb/utils"
@@ -66,7 +66,7 @@ func NewReplica() *Replica {
 	return r
 }
 
-func (r *Replica) init(key key_value.Key, table string) {
+func (r *Replica) init(key kv_store.Key, table string) {
 	r.Lock()
 	defer r.Unlock()
 	if _, exists := r.tables[table]; !exists {
@@ -75,7 +75,7 @@ func (r *Replica) init(key key_value.Key, table string) {
 	r.tables[table].Init(key, r)
 }
 
-func (r *Replica) GetPaxos(key key_value.Key, table string) *Paxos {
+func (r *Replica) GetPaxos(key kv_store.Key, table string) *Paxos {
 	if _, exists := r.tables[table]; exists {
 		r.init(key, table)
 		r.Lock()
@@ -89,7 +89,7 @@ func (r *Replica) GetPaxos(key key_value.Key, table string) *Paxos {
 	}
 }
 
-func (r *Replica) GetPaxosByCmd(cmd key_value.Command) *Paxos {
+func (r *Replica) GetPaxosByCmd(cmd kv_store.Command) *Paxos {
 	return r.GetPaxos(cmd.Key, cmd.Table)
 }
 
@@ -131,10 +131,6 @@ func (r *Replica) HandleTransaction(m fleetdb.Transaction) {
 		r.init(c.Key, c.Table)
 		p := r.GetPaxosByCmd(c)
 
-		/*r.Lock()
-		r.stats[c.Key.B64()].HitWeight(c.ClientID, len(m.Commands) / 2 + 1)
-		r.Unlock()*/
-
 		if p != nil && p.IsLeader() {
 			r.sendLeaseP2a(c, p, m, TxLeaseChan)
 		} else {
@@ -144,8 +140,8 @@ func (r *Replica) HandleTransaction(m fleetdb.Transaction) {
 	}
 }
 
-func (r *Replica) createLeaseRequest(c key_value.Command, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) fleetdb.Request {
-	cmdLease := new(key_value.Command)
+func (r *Replica) createLeaseRequest(c kv_store.Command, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) fleetdb.Request {
+	cmdLease := new(kv_store.Command)
 	cmdLease.Key = c.Key
 	cmdLease.Table = c.Table
 
@@ -154,11 +150,11 @@ func (r *Replica) createLeaseRequest(c key_value.Command, tx fleetdb.Transaction
 	binary.LittleEndian.PutUint64(b, uint64(tx.TxID))
 	cmdLease.Value = b
 
-	cmdLease.Operation = key_value.TX_LEASE
+	cmdLease.Operation = kv_store.TX_LEASE
 	return fleetdb.Request{Command:*cmdLease, C:TxLeaseChan, Timestamp:tx.Timestamp}
 }
 
-func (r *Replica) sendLeaseP2a(c key_value.Command, p *Paxos, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) {
+func (r *Replica) sendLeaseP2a(c kv_store.Command, p *Paxos, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) {
 	leaseReq := r.createLeaseRequest(c, tx, TxLeaseChan)
 	p.GetAccessToken()
 	defer p.ReleaseAccessToken()
@@ -166,7 +162,7 @@ func (r *Replica) sendLeaseP2a(c key_value.Command, p *Paxos, tx fleetdb.Transac
 	p.P2a(&leaseReq)
 }
 
-func (r *Replica) sendTxP1a(c key_value.Command, p *Paxos, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) {
+func (r *Replica) sendTxP1a(c kv_store.Command, p *Paxos, tx fleetdb.Transaction, TxLeaseChan chan fleetdb.Reply) {
 	leaseReq := r.createLeaseRequest(c, tx, TxLeaseChan)
 	p.GetAccessToken()
 	defer p.ReleaseAccessToken()
@@ -258,10 +254,10 @@ func (r *Replica) startTxP2a(tx *fleetdb.Transaction) {
 func (r *Replica) handleAcceptTX(m AcceptTX) {
 	log.Debugf("Replica %s ===[%v]===>>> Replica %s\n", m.P2as[0].Ballot.ID(), m, r.ID())
 
-	cmds := make([]key_value.Command, len(m.P2as))
+	cmds := make([]kv_store.Command, len(m.P2as))
 	slots := make([]int, len(m.P2as))
 	p2bs := make([]Accepted, len(m.P2as))
-	keys := make([]key_value.Key, len(m.P2as))
+	keys := make([]kv_store.Key, len(m.P2as))
 
 	for i, p2a := range m.P2as {
 		slots[i] = p2a.Slot
@@ -366,7 +362,7 @@ func (r *Replica) startTxP3(txid ids.TXID, commit bool) {
 		cmd := tx.Commands[i]
 		p := r.GetPaxosByCmd(cmd)
 		if !commit {
-			cmd.Operation = key_value.NOOP
+			cmd.Operation = kv_store.NOOP
 			p.SlotNOOP(meta.Slot)
 		}
 		p3 := Commit{Slot: meta.Slot, Command: cmd}
@@ -400,7 +396,7 @@ func (r *Replica) handleCommitTX(m CommitTX) {
 	r.txl.Lock()
 	if r.txs[m.TXID] == nil {
 		//we have not seen this TX yet
-		cmds := make([]key_value.Command, len(m.P3s))
+		cmds := make([]kv_store.Command, len(m.P3s))
 		slots := make([]int, len(m.P3s))
 		for i, p3 := range m.P3s {
 			slots[i] = p3.Slot

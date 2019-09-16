@@ -3,7 +3,7 @@ package wpaxos
 import (
 	"github.com/acharapko/fleetdb/log"
 	"sync"
-	"github.com/acharapko/fleetdb/key_value"
+	"github.com/acharapko/fleetdb/kv_store"
 	"github.com/acharapko/fleetdb/ids"
 )
 
@@ -26,14 +26,14 @@ func NewTable(table string) *Table {
 	return t
 }
 
-func (t *Table) GetPaxos(key key_value.Key) *Paxos {
+func (t *Table) GetPaxos(key kv_store.Key) *Paxos {
 	t.Lock()
 	defer t.Unlock()
 
 	return t.paxi[key.B64()]
 }
 
-func (t *Table) Init(key key_value.Key, r *Replica) {
+func (t *Table) Init(key kv_store.Key, r *Replica) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -48,7 +48,7 @@ func (t *Table) CountKeys() int {
 }
 
 
-func (t *Table) InitStat(key key_value.Key) {
+func (t *Table) InitStat(key kv_store.Key) {
 	t.Lock()
 	defer t.Unlock()
 	k := key.B64()
@@ -58,7 +58,7 @@ func (t *Table) InitStat(key key_value.Key) {
 	}
 }
 
-func (t *Table) RemoveStats(key key_value.Key) {
+func (t *Table) RemoveStats(key kv_store.Key) {
 	t.Lock()
 	defer t.Unlock()
 	k := key.B64()
@@ -68,23 +68,23 @@ func (t *Table) RemoveStats(key key_value.Key) {
 	}
 }
 
-func (t *Table) HitKey(key key_value.Key, clientID ids.ID, timestamp int64) ids.ID {
+func (t *Table) HitKey(key kv_store.Key, clientID ids.ID, timestamp int64) ids.ID {
 	t.RLock()
 	defer t.RUnlock()
 	return t.stats[key.B64()].Hit(clientID, timestamp)
 }
 
 
-func (t *Table) FindLeastUsedKey() key_value.Key {
+func (t *Table) FindLeastUsedKey() kv_store.Key {
 	t.Lock()
 	defer t.Unlock()
-	var lak key_value.Key
-	var tempKey key_value.Key
+	var lak kv_store.Key
+	var tempKey kv_store.Key
 	timeUsed := int64(^uint64(0) >> 1) //max int
 	for k, hits := range t.stats {
 		lastUsedTime := hits.LastReqTime()
 		if !hits.Evicting() && lastUsedTime < timeUsed && lastUsedTime > NANOSECONDS_PER_SECOND {
-			tempKey = key_value.KeyFromB64(k)
+			tempKey = kv_store.KeyFromB64(k)
 			p := t.paxi[tempKey.B64()]
 			if p != nil  {
 				hasLease := p.HasTXLease(0)
@@ -99,7 +99,7 @@ func (t *Table) FindLeastUsedKey() key_value.Key {
 	return lak
 }
 
-func (t *Table) MarkKeyEvicting(k key_value.Key) {
+func (t *Table) MarkKeyEvicting(k kv_store.Key) {
 	t.Lock()
 	defer t.Unlock()
 	stat := t.stats[k.B64()]
