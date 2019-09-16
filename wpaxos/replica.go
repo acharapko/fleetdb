@@ -30,7 +30,7 @@ type Replica struct {
 
 func NewReplica() *Replica {
 	log.Infof("Creating WPaxos replica at node id = %v \n", ids.GetID())
-	config := config.GetConfig()
+	config := config.Instance
 	r := new(Replica)
 	r.Node = fleetdb.NewNode()
 	//r.paxi = make(map[string]*Paxos)
@@ -51,7 +51,7 @@ func NewReplica() *Replica {
 	r.Register(Exec{}, r.handleExec)
 	r.Register(CommitTX{}, r.handleCommitTX)
 
-	zones := make(map[int]int)
+	zones := make(map[uint8]int)
 	for id := range config.Addrs {
 		zones[id.Zone()]++
 	}

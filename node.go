@@ -55,7 +55,7 @@ type node struct {
 // NewNode creates a new Node object from configuration
 func NewNode() Node {
 	log.Infof("Starting node %v \n", ids.GetID())
-	config := config.GetConfig()
+	config := config.Instance
 	node := new(node)
 	node.id = ids.GetID()
 
@@ -221,7 +221,7 @@ func (n *node) serve() {
 		}
 	})
 	// http string should be in form of ":8080"
-	url, _ := url.Parse(config.GetConfig().HTTPAddrs[n.id])
+	url, _ := url.Parse(config.Instance.HTTPAddrs[n.id])
 	port := ":" + url.Port()
 	err := http.ListenAndServe(port, mux)
 	if err != nil {
@@ -260,7 +260,7 @@ func (n *node) ForwardTx(id ids.ID, tx Transaction) {
 func (n *node) Forward(id ids.ID, m Request) {
 	key := m.Command.Key
 	table := m.Command.Table
-	url := config.GetConfig().HTTPAddrs[id] + "/"+ table + "/" + string(key)
+	url := config.Instance.HTTPAddrs[id] + "/"+ table + "/" + string(key)
 
 	log.Debugf("Node %v forwarding request %v to %s", n.ID(), m, url)
 	switch m.Command.Operation {

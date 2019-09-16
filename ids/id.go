@@ -22,7 +22,7 @@ func GetID() ID {
 	return ID(*id)
 }
 
-func NewID(zone, node int) ID {
+func NewID(zone, node uint8) ID {
 	if zone < 0 {
 		zone = -zone
 	}
@@ -33,7 +33,7 @@ func NewID(zone, node int) ID {
 }
 
 // Zone returns Zond ID component
-func (i ID) Zone() int {
+func (i ID) Zone() uint8 {
 	if !strings.Contains(string(i), ".") {
 		log.Warningf("id %s does not contain \".\"\n", i)
 		return 0
@@ -43,11 +43,11 @@ func (i ID) Zone() int {
 	if err != nil {
 		log.Errorf("Failed to convert Zone %s to int\n", s)
 	}
-	return int(zone)
+	return uint8(zone)
 }
 
 // Node returns Node ID component
-func (i ID) Node() int {
+func (i ID) Node() uint8 {
 	var s string
 	if !strings.Contains(string(i), ".") {
 		log.Warningf("id %s does not contain \".\"\n", i)
@@ -59,5 +59,5 @@ func (i ID) Node() int {
 	if err != nil {
 		log.Errorf("Failed to convert Node %s to int\n", s)
 	}
-	return int(node)
+	return uint8(node)
 }

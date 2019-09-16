@@ -1,18 +1,15 @@
 package wpaxos
 
 import (
-	"time"
-	"github.com/acharapko/fleetdb"
 	"github.com/acharapko/fleetdb/ids"
 	"math"
-
+	"github.com/acharapko/fleetdb/config"
 )
 
 type hitstat interface {
-	Hit(id ids.ID, lt int64) ids.ID
-	HitWeight(id ids.ID, weight int, lt int64) ids.ID
+	Hit(id ids.ID, timestamp int64) ids.ID
 	Reset()
-	CalcDestination() ids.ID
+	GetDestination() ids.ID
 	LastReqTime() int64
 	Evicting() bool
 	MarkEvicting()
@@ -20,37 +17,39 @@ type hitstat interface {
 
 // keystat of access history in previous interval time
 type keystat struct {
-	hits     map[ids.ID]int
-	ema		 float64
-	time     time.Time // last start time
-	LastReqT int64 //last operation timestamp
-	evicting bool
-	sum      int // total hits in current interval
+	regionScores    map[uint8]float32
+	LastReqTimesamp int64     //last operation timestamp
+	evicting        bool
 }
 
 func NewStat() *keystat {
-	return &keystat{
-		hits:     make(map[ids.ID]int),
-		ema:	  0,
-		time:     time.Now(),
+	zones := config.Instance.GetZoneIds()
+	scores := make(map[uint8]float32)
+	for _, z := range zones {
+		scores[z] = 1.0 / float32(len(zones))
 	}
+	return &keystat{
+		regionScores: scores,
+	}
+
 }
 
-func (s *keystat) CalcDestination() ids.ID {
+func (s *keystat) GetDestination() ids.ID {
+	minScore := float32(1.0)
+	minRegion := uint8(math.MaxInt8)
 
-	threshold := int(math.Ceil(1.0 / float64(NumZones) + Migration_majority) * float64(s.sum))
-
-	for id, n := range s.hits {
-		if n >= threshold {
-			return id
+	for z, _ := range s.regionScores {
+		if s.regionScores[z] < minScore {
+			minScore = s.regionScores[z]
+			minRegion = z
 		}
 	}
-	s.Reset()
-	return ""
+
+	return ids.NewID(minRegion, 1)
 }
 
 func (s *keystat) LastReqTime() int64 {
-	return s.LastReqT
+	return s.LastReqTimesamp
 }
 
 func (s *keystat) Evicting() bool {
@@ -61,39 +60,38 @@ func (s *keystat) MarkEvicting() {
 	s.evicting = true
 }
 
-// hit record access id and return the
-func (s *keystat) Hit(id ids.ID, lt int64) ids.ID {
-
-	s.hits[id]++
-	s.sum++
-	s.LastReqT = lt
-	//log.Debugf("Hit %f s int= %d ms, %d\n",time.Since(s.time).Seconds(), fleetdb.HandoverInterval, s.sum)
-
-	//if time.Since(s.time) >= time.Millisecond*time.Duration(s.interval) {
-	//	return s.CalcDestination()
-	//}
-
-	if (s.sum >= fleetdb.HandoverN && time.Since(s.time) >= time.Millisecond*time.Duration(fleetdb.HandoverInterval)) {
-		return s.CalcDestination()
-	}
-
-	return ""
-}
 
 // hit record access id and return the
-func (s *keystat) HitWeight(id ids.ID, weight int, lt int64) ids.ID {
-	s.hits[id] += weight
-	s.sum += weight
-	s.LastReqT = lt
-	if time.Since(s.time) >= time.Millisecond*time.Duration(fleetdb.HandoverInterval) {
-		return s.CalcDestination()
+func (s *keystat) Hit(id ids.ID, timestamp int64) ids.ID {
+	s.LastReqTimesamp = timestamp
+	alpha := config.Instance.CoGAlpha
+
+	change := float32(0.0)
+	minScore := float32(1.0)
+	minRegion := uint8(math.MaxInt8)
+
+	for z, score := range s.regionScores {
+		if z != id.Zone() {
+			change += alpha * score
+			s.regionScores[z] -= alpha * score
+			if s.regionScores[z] < minScore {
+				minScore = s.regionScores[z]
+				minRegion = z
+			}
+		}
 	}
-	return ""
+	s.regionScores[id.Zone()] += change
+	if s.regionScores[id.Zone()] < minScore {
+		minScore = s.regionScores[id.Zone()]
+		minRegion = id.Zone()
+	}
+
+	return ids.NewID(minRegion, 1)
 }
+
+
 
 func (s *keystat) Reset() {
-	s.hits = make(map[ids.ID]int)
-	s.sum = 0
+	s.regionScores = make(map[uint8]float32)
 	s.evicting = false
-	s.time = time.Now()
 }

@@ -12,11 +12,11 @@ type Socket interface {
 	Send(to ids.ID, msg interface{})
 
 	// Multicast send msg to all nodes in the same site
-	Multicast(zone int, msg interface{})
+	Multicast(zone uint8, msg interface{})
 
 	// Broadcast send to all peers within the Replication Region
 	//zone is the current zone of the node
-	RBroadcast(zone int, msg interface{})
+	RBroadcast(zone uint8, msg interface{})
 
 	// Broadcast send to all peers
 	Broadcast(msg interface{})
@@ -26,7 +26,7 @@ type Socket interface {
 
 	Close()
 
-	GetReplicationGroupZones(zone int) []int
+	GetReplicationGroupZones(zone uint8) []uint8
 }
 
 type socket struct {
@@ -61,8 +61,8 @@ func NewSocket(id ids.ID, addrs map[ids.ID]string, transport, codec string) Sock
 	return socket
 }
 
-func (sock *socket) GetReplicationGroupZones(zone int) []int {
-	z := make([]int, 1)
+func (sock *socket) GetReplicationGroupZones(zone uint8) []uint8 {
+	z := make([]uint8, 1)
 	z[0] = zone
 	return z
 }
@@ -95,7 +95,7 @@ func (sock *socket) Recv() interface{} {
 	return msg
 }
 
-func (sock *socket) Multicast(zone int, msg interface{}) {
+func (sock *socket) Multicast(zone uint8, msg interface{}) {
 	hlcTime := hlc.HLClock.Now()
 	hdr := MsgHeader{HLCTime:hlcTime}
 	for id := range sock.nodes {
@@ -108,7 +108,7 @@ func (sock *socket) Multicast(zone int, msg interface{}) {
 	}
 }
 
-func (sock *socket) RBroadcast(zone int, msg interface{}) {
+func (sock *socket) RBroadcast(zone uint8, msg interface{}) {
 	hlcTime := hlc.HLClock.Now()
 	hdr := MsgHeader{HLCTime:hlcTime}
 	zones := sock.GetReplicationGroupZones(zone)

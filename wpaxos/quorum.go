@@ -21,7 +21,7 @@ var (
 type Quorum struct {
 	size  int
 	acks  map[ids.ID]bool
-	zones map[int]int
+	zones map[uint8]int8
 	nacks map[ids.ID]bool
 }
 
@@ -29,7 +29,7 @@ func NewQuorum() *Quorum {
 	return &Quorum{
 		size:  0,
 		acks:  make(map[ids.ID]bool, NumNodes),
-		zones: make(map[int]int, NumZones),
+		zones: make(map[uint8]int8, NumZones),
 		nacks: make(map[ids.ID]bool, NumNodes),
 	}
 }
@@ -59,7 +59,7 @@ func (q *Quorum) Size() int {
 func (q *Quorum) Reset() {
 	q.size = 0
 	q.acks = make(map[ids.ID]bool, NumNodes)
-	q.zones = make(map[int]int, NumZones)
+	q.zones = make(map[uint8]int8, NumZones)
 	q.nacks = make(map[ids.ID]bool, NumNodes)
 }
 
@@ -81,7 +81,7 @@ func (q *Quorum) AllZones() bool {
 
 func (q *Quorum) ZoneMajority() bool {
 	for _, n := range q.zones {
-		if n > NumLocalNodes/2 {
+		if int(n) > NumLocalNodes/2 {
 			return true
 		}
 	}
@@ -94,7 +94,7 @@ func (q *Quorum) GridRow() bool {
 
 func (q *Quorum) GridColumn() bool {
 	for _, n := range q.zones {
-		if n == NumLocalNodes {
+		if int(n) == NumLocalNodes {
 			return true
 		}
 	}
@@ -104,7 +104,7 @@ func (q *Quorum) GridColumn() bool {
 func (q *Quorum) FGridQ1() bool {
 	z := 0
 	for _, n := range q.zones {
-		if n > NumLocalNodes/2 {
+		if int(n) > NumLocalNodes/2 {
 			z++
 		}
 	}
@@ -114,7 +114,7 @@ func (q *Quorum) FGridQ1() bool {
 func (q *Quorum) FGridQ2() bool {
 	z := 0
 	for _, n := range q.zones {
-		if n > NumLocalNodes/2 {
+		if int(n) > NumLocalNodes/2 {
 			z++
 		}
 	}

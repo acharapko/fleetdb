@@ -33,5 +33,7 @@
     "RS":1,
     "handoverN":5,
     "migration_majority":0.05,
-    "max_idle_connections":100
+    "max_idle_connections":100,
+    "cog_alpha": 0.1,
+    "cog_min_number_hits": 3
 }

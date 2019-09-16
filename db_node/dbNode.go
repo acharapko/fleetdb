@@ -25,10 +25,10 @@ type DBNode struct {
 	targetBalance	   float64
 	//zone distances
 	pingDistances      map[ids.ID] int
-	pingZonesDistances map[int] int
+	pingZonesDistances map[uint8] int
 
 	//replication group zone
-	rgz				  []int
+	rgz				  []uint8
 
 	//stats map[string] hitstat
 	memprofile string
@@ -43,7 +43,7 @@ func NewDBNode() *DBNode {
 	db.balanceCount = make(map[ids.ID]int)
 	db.loadFactor = make(map[ids.ID]float64)
 	db.pingDistances = make(map[ids.ID]int)
-	db.pingZonesDistances = make(map[int]int)
+	db.pingZonesDistances = make(map[uint8]int)
 	db.Replica = wpaxos.NewReplica()
 
 	//fleetdb utils
@@ -69,7 +69,7 @@ func (db *DBNode) SetMemProfile(memprofile string) {
 
 func (db *DBNode) startBalanceGossip() {
 	log.Infof("Starting balance gossip at node %v \n", ids.GetID())
-	ticker := time.NewTicker(time.Duration(config.GetConfig().BalGossipInt) * time.Millisecond)
+	ticker := time.NewTicker(time.Duration(config.Instance.BalGossipInt) * time.Millisecond)
 
 	go func() {
 		for {
@@ -99,7 +99,7 @@ func (db *DBNode) startBalanceGossip() {
 
 func (db *DBNode) startProximityGossip() {
 	log.Infof("Starting proximity gossip at node %v \n", ids.GetID())
-	ticker := time.NewTicker(time.Duration(config.GetConfig().BalGossipInt) * time.Millisecond)
+	ticker := time.NewTicker(time.Duration(config.Instance.BalGossipInt) * time.Millisecond)
 	go func() {
 		for {
 			select {
@@ -111,14 +111,14 @@ func (db *DBNode) startProximityGossip() {
 	}()
 }
 
-func (db *DBNode) computeReplicationGroupZones(zone int) []int{
+func (db *DBNode) computeReplicationGroupZones(zone uint8) []uint8{
 	db.dbnodelock.Lock()
 	defer db.dbnodelock.Unlock()
 
-	rgz := make([]int, config.GetConfig().RS)
+	rgz := make([]uint8, config.Instance.RS)
 	rgz[0] = zone //our zone is always in our region
 
-	distToZone := map[int][]int{}
+	distToZone := map[int][]uint8{}
 	var dist []int
 	for z, dist := range db.pingZonesDistances {
 		distToZone[dist] = append(distToZone[dist], z) //adding zone to this distance
@@ -129,12 +129,12 @@ func (db *DBNode) computeReplicationGroupZones(zone int) []int{
 	//sorting distances
 	sort.Sort(sort.IntSlice(dist))
 
-	zleft := config.GetConfig().RS - 1
+	zleft := config.Instance.RS - 1
 	//iterate through distances
 	for _, d := range dist {
 		for _, z := range distToZone[d] {
 			if zleft > 0 {
-				rgz[config.GetConfig().RS - zleft] = z
+				rgz[config.Instance.RS - zleft] = z
 				zleft--
 			}
 		}
@@ -142,7 +142,7 @@ func (db *DBNode) computeReplicationGroupZones(zone int) []int{
 	return rgz
 }
 
-func (db *DBNode) GetReplicationGroupZones(zone int) []int  {
+func (db *DBNode) GetReplicationGroupZones(zone uint8) []uint8  {
 	return db.rgz
 }
 
@@ -214,16 +214,16 @@ func (db *DBNode) processLeaderChange(to ids.ID, p *wpaxos.Paxos) {
 	db.dbnodelock.Unlock()
 
 	if to.Zone() != db.ID().Zone() {
-		log.Debugf("Process Leader (Key=%s, table=%s) Change @ %s: to %s balance = %f, overld = %f\n", string(p.Key), p.Table, db.ID(), to, loadFctr, config.GetConfig().OverldThrshld)
+		log.Debugf("Process Leader (Key=%s, table=%s) Change @ %s: to %s balance = %f, overld = %f\n", string(p.Key), p.Table, db.ID(), to, loadFctr, config.Instance.OverldThrshld)
 		//we are changing zone.
 		//see if we can have a better node for balance
-		if loadFctr - config.GetConfig().OverldThrshld > db.targetBalance {
+		if loadFctr - config.Instance.OverldThrshld > db.targetBalance {
 			//we can find a better node in the same replication region
 			zones := db.computeReplicationGroupZones(to.Zone()) //this is our best guess for the replication region now
 			//log.Debugf("Process Leader: Got Zones %v\n", zones)
 			db.dbnodelock.RLock()
 			for id, lf := range db.loadFactor {
-				if utils.IntInSlice(id.Zone(), zones) && loadFctr > lf {
+				if utils.Uint8InSlice(id.Zone(), zones) && loadFctr > lf {
 					to = id
 					break
 				}
@@ -263,8 +263,8 @@ func (db *DBNode) findEvictKey(table string) *evictionNotice {
 		//first, lets check if this region has some room
 		db.dbnodelock.RLock()
 		for id, lf := range db.loadFactor {
-			thisRR := utils.IntInSlice(id.Zone(), db.rgz)
-			if id != db.ID() && thisRR && lf - config.GetConfig().OverldThrshld < db.targetBalance {
+			thisRR := utils.Uint8InSlice(id.Zone(), db.rgz)
+			if id != db.ID() && thisRR && lf - config.Instance.OverldThrshld < db.targetBalance {
 				//we found a home!
 				log.Infof("SAME REGION (lf = %f) EVICTION TO %s \n",lf, id)
 				tbl.MarkKeyEvicting(lak)
@@ -276,7 +276,7 @@ func (db *DBNode) findEvictKey(table string) *evictionNotice {
 
 		//if we got to here, there was no suitable place in the region.
 		//lets find something as close as possible
-		distToZone := map[int][]int{}
+		distToZone := map[int][]uint8{}
 		var dist []int
 		db.dbnodelock.RLock()
 		for z, dist := range db.pingZonesDistances {
@@ -292,7 +292,7 @@ func (db *DBNode) findEvictKey(table string) *evictionNotice {
 		for _, d := range dist {
 			for _, z := range distToZone[d] {
 				//log.Debugf("Checking zone %d to evict %s\n", z, string(lak))
-				difReplGrp := utils.IntInSlice(z, db.rgz)
+				difReplGrp := utils.Uint8InSlice(z, db.rgz)
 				if !difReplGrp {
 					//z is in different replication region
 					db.dbnodelock.RLock()
@@ -321,8 +321,8 @@ func (db *DBNode) EvictKey(table string) {
 	log.Infof("Considering Eviction @ %v: lf= %f, target=%f \n", db.ID(), lf, tb)
 	//this ugly loop tells how many keys to evict. The bigger misbalance causes more evictions
 	evictedCount:=0
-	for i := tb; i < lf; i += config.GetConfig().OverldThrshld {
-		if lf - config.GetConfig().OverldThrshld > tb {
+	for i := tb; i < lf; i += config.Instance.OverldThrshld {
+		if lf - config.Instance.OverldThrshld > tb {
 			evictNotice := db.findEvictKey(table)
 			if evictNotice != nil {
 				p := db.GetPaxos(evictNotice.key, evictNotice.table)
@@ -369,14 +369,14 @@ func (db *DBNode) HandleRequest(m fleetdb.Request) {
 	k := m.Command.Key
 
 	p := db.GetPaxosByCmd(m.Command)
-	if p != nil && config.GetConfig().Adaptive {
+	if p != nil && config.Instance.Adaptive {
 		if p.IsLeader() || p.Ballot() == 0 {
 			db.Replica.HandleRequest(m)
 			tbl := db.GetTable(m.Command.Table)
 			tbl.InitStat(k)
 			to := tbl.HitKey(k, m.Command.ClientID, m.Timestamp)
 
-			if to != "" {
+			if to.Zone() != db.ID().Zone() {
 				db.processLeaderChange(ids.ID(to), p)
 			}
 			db.dbnodelock.RLock()

@@ -36,7 +36,7 @@ type Client struct {
 
 // NewClient creates a new Client from config
 func NewClient() *Client {
-	config := config.GetConfig()
+	config := config.Instance
 	ids.GetID()
 	fmt.Printf("Starting Client %v\n", ids.GetID())
 	c := new(Client)

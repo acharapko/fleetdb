@@ -19,8 +19,8 @@ var memprof = flag.String("memprof", "", "write memory profile to this file")
 func replica() {
 	log.Infof("Server %v starting\n", ids.GetID())
 	config.LoadConfig() // load config upon startup of a replica
-	log.Infof("leveldb: %v \n", config.GetConfig().LevelDBDir)
-	log.Infof("quorum: %v \n", config.GetConfig().Quorum)
+	log.Infof("leveldb: %v \n", config.Instance.LevelDBDir)
+	log.Infof("quorum: %v \n", config.Instance.Quorum)
 	dbInstance := db_node.NewDBNode() // start a DB Node
 	if memprof != nil {
 		dbInstance.SetMemProfile(*memprof)

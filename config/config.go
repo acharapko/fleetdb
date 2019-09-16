@@ -12,6 +12,7 @@ import (
 
 var configFile = flag.String("config", "config.json", "Configuration file for paxi replica. Defaults to config.json.")
 
+var Instance *Config
 // default values
 const (
 	PORT      = 1735
@@ -43,6 +44,8 @@ type Config struct {
 	HandoverN	    int       	  		`json:"handoverN"` 			//how many request we need before making polite handover decision
 	Migration_maj   float64    	  		`json:"migration_majority"` //http max idle connection per host
 	MaxIdleCnx	    int       	  		`json:"max_idle_connections"` //http max idle connection per host
+	CoGAlpha		float32				`json:"cog_alpha"`
+	CoGMinNumHits	int					`json:"cog_min_number_hits"`
 
 
 	// for future implementation
@@ -70,28 +73,35 @@ func MakeDefaultConfig() Config {
 	config.HandoverN = 5
 	config.MaxIdleCnx = 100
 	config.Migration_maj = 0.05
+	config.CoGAlpha = 0.1
+	config.CoGMinNumHits = 3
 	return *config
 }
 
-var config *Config
-
 func init() {
-	LoadConfig()
-}
-
-// GetConfig returns paxi package configuration
-func GetConfig() *Config {
-	return config
-}
-
-// LoadConfig creates config object with given node id and config file path
-func LoadConfig() {
 	log.Infof("Loading configuration from %s \n", *configFile)
-	config = new(Config)
-	err := config.load()
+	Instance = new(Config)
+	err := Instance.load()
 	if err != nil {
 		log.Fatalln(err)
 	}
+}
+
+func (c *Config) GetZoneIds() []uint8 {
+	zones := make([]uint8, 0)
+	for id, _ := range c.Addrs {
+		idInZones := false
+		for _, z := range zones {
+			if z == id.Zone() {
+				idInZones = true
+				break
+			}
+		}
+		if !idInZones {
+			zones = append(zones, id.Zone())
+		}
+	}
+	return zones
 }
 
 // String is implemented to print the config

@@ -75,7 +75,7 @@ type Paxos struct {
 
 // NewPaxos creates new paxos instance
 func NewPaxos(n fleetdb.Node, key key_value.Key, table *string) *Paxos {
-	plog := make(map[int]*entry, config.GetConfig().BufferSize)
+	plog := make(map[int]*entry, config.Instance.BufferSize)
 	//log[0] = &entry{}
 	p := &Paxos{
 		Node:            n,
@@ -84,7 +84,7 @@ func NewPaxos(n fleetdb.Node, key key_value.Key, table *string) *Paxos {
 		lastMutate:		 0,
 		Key:             key,
 		Table:			 table,
-		txLeaseDuration: time.Duration(config.GetConfig().TX_lease) * time.Millisecond,
+		txLeaseDuration: time.Duration(config.Instance.TX_lease) * time.Millisecond,
 		quorum:          NewQuorum(),
 		requests:        make([]*fleetdb.Request, 0),
 		Token:			 make(chan bool, 1),
@@ -724,11 +724,11 @@ func (p *Paxos) cleanLog(slotNum int) {
 	}
 	if len(p.log) == 0 {
 		//log.Debug("Clean ZERO")
-		p.log = make(map[int]*entry, config.GetConfig().BufferSize)
+		p.log = make(map[int]*entry, config.Instance.BufferSize)
 	}
 	if len(p.log) == 1 {
 		//log.Debug("Clean UNO")
-		tempLog := make(map[int]*entry, config.GetConfig().BufferSize)
+		tempLog := make(map[int]*entry, config.Instance.BufferSize)
 		for s, _ := range p.log {
 			tempLog[s] = p.log[s]
 		}

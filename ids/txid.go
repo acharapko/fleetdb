@@ -6,12 +6,12 @@ import "strconv"
 type TXID uint64
 
 
-func NewTXID(zone, node, txNum int) TXID {
+func NewTXID(zone, node uint8, txNum int) TXID {
 	idz := uint64(zone)
-	idz = idz << 48 //16 bit for txid.zone
+	idz = idz << 56 //8 bit for txid.zone
 
 	idn := uint64(node)
-	idn = idn << 32 //16bit for txid.node
+	idn = idn << 48 //8 bit for txid.node
 
 	id := idz
 	id = id ^ idn;

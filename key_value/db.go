@@ -43,8 +43,8 @@ func (db *database) getStore(name string, ID ids.ID) []*leveldb.DB{
 	storedbs := db.leveldbs[name]
 	if storedbs == nil {
 		storedbs = make([]*leveldb.DB, 0)
-		for i, dir := range config.GetConfig().LevelDBDir {
-			lvlDBName := dir + "/" + name + "/" + strconv.Itoa(ID.Zone()) + "." + strconv.Itoa(ID.Node())+ "." + strconv.Itoa(i)
+		for i, dir := range config.Instance.LevelDBDir {
+			lvlDBName := dir + "/" + name + "/" + strconv.Itoa(int(ID.Zone())) + "." + strconv.Itoa(int(ID.Node()))+ "." + strconv.Itoa(i)
 			lvldb, err := leveldb.OpenFile(lvlDBName,nil)
 			if err != nil {
 				log.Fatal("Error opening LevelDB store: " + lvlDBName)

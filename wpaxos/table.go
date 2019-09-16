@@ -79,22 +79,23 @@ func (t *Table) FindLeastUsedKey() key_value.Key {
 	t.Lock()
 	defer t.Unlock()
 	var lak key_value.Key
-	var temp_key key_value.Key
-	timeused := int64(^uint64(0) >> 1) //max int
+	var tempKey key_value.Key
+	timeUsed := int64(^uint64(0) >> 1) //max int
 	for k, hits := range t.stats {
-		lt := hits.LastReqTime()
-		if !hits.Evicting() && lt < timeused && lt > NANOSECONDS_PER_SECOND   { //more than one second old
-			temp_key = key_value.KeyFromB64(k)
-			p := t.paxi[temp_key.B64()]
+		lastUsedTime := hits.LastReqTime()
+		if !hits.Evicting() && lastUsedTime < timeUsed && lastUsedTime > NANOSECONDS_PER_SECOND {
+			tempKey = key_value.KeyFromB64(k)
+			p := t.paxi[tempKey.B64()]
 			if p != nil  {
 				hasLease := p.HasTXLease(0)
 				if len(p.requests) == 0 && !hasLease {
-					lak = temp_key
-					timeused = lt
+					lak = tempKey
+					timeUsed = lastUsedTime
 				}
 			}
 		}
 	}
+
 	return lak
 }
 
