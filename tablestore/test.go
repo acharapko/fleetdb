@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"strings"
-	"github.com/acharapko/fleetdb/kv_store"
-	//"github.com/acharapko/fleetdb/ids"
+	//"strings"
+	//"github.com/darshannevgi/fleetdb/kv_store"
+	//"github.com/darshannevgi/fleetdb/tablestore"
 )
 /*
 CREATE TABLE crossfit_gyms (  
@@ -16,7 +16,6 @@ CREATE TABLE crossfit_gyms (
 );
 */
 
-
 type FleetDBType uint8
 
 const (
@@ -25,17 +24,18 @@ const (
   TEXT
 )
 
-type KVItem struct {
-    Key      []byte
-    Value    []byte
-}
-
 type FleetDbColumnSpec struct {
     colname         string
     coltype         FleetDBType
     isPartition     bool
     isClustering    bool
 }
+
+type KVItem struct {
+    Key      []byte
+    Value    []byte
+}
+
 //m := make(map[string]int)
 func main(){
 	createCommand := "CREATE TABLE crossfit_gyms (country_code text,state_province text,city text,gym_name text,PRIMARY KEY (country_code, state_province));"
@@ -47,9 +47,9 @@ func main(){
 	rowData, myTableName := decodeInsertCommand(insertCommand)
 	//kvData := TranslateToKV(tableMap[myTableName], rowData)
 	TranslateToKV(tableMap[myTableName], rowData)
-	fmt.Println("before new store")
-	kv_store.NewStore()
-	fmt.Println("After new store")
+	//fmt.Println("before new store")
+	//kv_store.NewStore()
+	//fmt.Println("After new store")
 	/*for _, item := range kvItem{
 		cmd := kv_store.Command{tableName, item.Key, item.Value, "", 0, kv_store.PUT }
 		//var id = flag.String("id", "1.1", "ID in format of Zone.Node. Default 1.1")
@@ -83,37 +83,39 @@ func createSchema(query string) ([]FleetDbColumnSpec,string) {
 	return schema,"crossfit_gyms"
 }
 
-func decodeInsertCommand(query string)([][]string , string){
-	val := [][]string{{"country_code", "US"},{"state_province", "NY"},{"city", "Buffalo"},{"gym_name", "University Avenue"}}
+func decodeInsertCommand(query string)([][]byte , string){
+	val := [][]byte{[]byte("US"), []byte("NY"),[]byte("Buffalo"),[]byte("University Avenue")}
 	return val, "crossfit_gyms"
 }
-
-func TranslateToKV(columnSpecs []FleetDbColumnSpec, values [][]string) []KVItem{
-    //build common string
-    var sbPKey strings.Builder
-    var sbCKey strings.Builder
+/* 
+Each values[0] represents byte[] data value of first column
+if first column is country_code then  values[0] is byte representation of 'US' = byte[]{85,83}
+*/
+func TranslateToKV(columnSpecs []FleetDbColumnSpec, values [][]byte) []KVItem{
+    var pKey []byte
+    var cKey []byte
     for i, colSpec := range columnSpecs {
     	if colSpec.isPartition{
-    		fmt.Println(values[i][1])
-    		sbPKey.WriteString(values[i][1])
+    		pKey = append(pKey, values[i]...)
     	}
     	if colSpec.isClustering{
-    		fmt.Println(values[i][1])
-    		sbCKey.WriteString(values[i][1])
+    		cKey = append(cKey, values[i]...)
     	}
    }
-    kvItems := make([]KVItem, 2)
+    kvItems := make([]KVItem, 100)
     index := 0
-    prefix := sbPKey.String() + "/"+ sbCKey.String()
+    pKey = append(pKey,"/"...)
+    prefix := append(pKey,cKey...)
+    prefix = append(prefix,"/"...)
     for i, colSpec := range columnSpecs {
     	if !colSpec.isPartition && !colSpec.isClustering{
-    		key := prefix + "/" + values[i][0]
-    		val := values[i][1]
-    		fmt.Println(key + " = " + val)
-    		kvItems[index] =  KVItem{[]byte(key), []byte(val)}
+    		key := append(prefix,colSpec.colname...)
+    		val := values[i]
+    		fmt.Println("Key is =" + string(key))
+    		fmt.Println("Value is =" + string(val))
+    		kvItems[index] =  KVItem{key, val}
     		index = index + 1
     	}
    }
-	//sbPKey.WriteString(str)
 	return kvItems;
 }
