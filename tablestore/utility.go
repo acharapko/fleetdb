@@ -23,9 +23,14 @@ func TranslateToKV(columnSpecs []FleetDbColumnSpec, values [][]byte) []KVItem{
    }
     kvItems := make([]KVItem, 100)
     index := 0
-    pKey = append(pKey,"/"...)
-    prefix := append(pKey,cKey...)
-    prefix = append(prefix,"/"...)
+    var prefix []byte
+    prefix = pKey
+    prefix = append(prefix,"/"...)    
+    if len(cKey) > 0{
+	    prefix = append(prefix,cKey...)
+	    prefix = append(prefix,"/"...)
+    }
+    
     for i, colSpec := range columnSpecs {
     	if !colSpec.isPartition && !colSpec.isClustering{
     		key := append(prefix,colSpec.colname...)
