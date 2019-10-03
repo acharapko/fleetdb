@@ -9,19 +9,19 @@ func TestTranslateToKV(t *testing.T) {
 
 	
 	
-	//createCommand := "CREATE TABLE crossfit_gyms (country_code text,state_province text,city text,gym_name text,PRIMARY KEY (country_code, state_province));"
+	//createCommand := "CREATE TABLE crossfit_gyms (country_code string,state_province string,city string,gym_name string,PRIMARY KEY (country_code, state_province));"
 	//fmt.Println(createCommand)
 	//myschema,tableName := createSchemaOnePOneC(createCommand)
 	tableMap := make(map[string][]FleetDbColumnSpec)
 	tableName := "crossfit_gyms"
 	
-	
+	var myInt Int
 	//Test With One Partition Key and One Clustering Key
 	myschema := make([]FleetDbColumnSpec, 4)
-	myschema[0] = FleetDbColumnSpec{"country_code", TEXT, true, false}
-	myschema[1] = FleetDbColumnSpec{"state_province", TEXT, false, true}
-	myschema[2] = FleetDbColumnSpec{"city", TEXT, false, false}
-	myschema[3] = FleetDbColumnSpec{"gym_name", TEXT, false, false}
+	myschema[0] = FleetDbColumnSpec{"country_code", myInt, true, false}
+	myschema[1] = FleetDbColumnSpec{"state_province", myInt, false, true}
+	myschema[2] = FleetDbColumnSpec{"city", myInt, false, false}
+	myschema[3] = FleetDbColumnSpec{"gym_name", myInt, false, false}
 	
 	tableMap[tableName] = myschema
 	insertCommand := "INSERT INTO crossfit_gyms (country_code, state_province, city, gym_name) VALUES ('US', ‘NY’, ‘Buffalo’, 'University Avenue');";
@@ -44,10 +44,10 @@ func TestTranslateToKV(t *testing.T) {
 	
 	//Test With One Partition Key and Zero Clustering Key
 	myschema = make([]FleetDbColumnSpec, 4)
-	myschema[0] = FleetDbColumnSpec{"country_code", TEXT, true, false}
-	myschema[1] = FleetDbColumnSpec{"state_province", TEXT, false, false}
-	myschema[2] = FleetDbColumnSpec{"city", TEXT, false, false}
-	myschema[3] = FleetDbColumnSpec{"gym_name", TEXT, false, false}
+	myschema[0] = FleetDbColumnSpec{"country_code", myInt, true, false}
+	myschema[1] = FleetDbColumnSpec{"state_province", myInt, false, false}
+	myschema[2] = FleetDbColumnSpec{"city", myInt, false, false}
+	myschema[3] = FleetDbColumnSpec{"gym_name", myInt, false, false}
 	
 	tableMap[tableName] = myschema
 	insertCommand = "INSERT INTO crossfit_gyms (country_code, state_province, city, gym_name) VALUES ('US', ‘NY’, ‘Buffalo’, 'University Avenue');";
@@ -72,6 +72,9 @@ func TestTranslateToKV(t *testing.T) {
 		t.Errorf("TranslateToKV() Test case 2 failed, expected %v, got %v", "University Avenue" , string(res[2].Value))
 	}
 	
+	
+	
+	//
 
 }
 
@@ -82,10 +85,10 @@ func decodeInsertCommand(query string)([][]byte , string){
 
 /*func createSchema(query string) ([]FleetDbColumnSpec,string) {
 	schema := make([]FleetDbColumnSpec, 4)
-	schema[0] = FleetDbColumnSpec{"country_code", TEXT, true, false}
-	schema[1] = FleetDbColumnSpec{"state_province", TEXT, false, true}
-	schema[2] = FleetDbColumnSpec{"city", TEXT, false, false}
-	schema[3] = FleetDbColumnSpec{"gym_name", TEXT, false, false}
+	schema[0] = FleetDbColumnSpec{"country_code", string, true, false}
+	schema[1] = FleetDbColumnSpec{"state_province", string, false, true}
+	schema[2] = FleetDbColumnSpec{"city", string, false, false}
+	schema[3] = FleetDbColumnSpec{"gym_name", string, false, false}
 	return schema,"crossfit_gyms"
 }
 */
