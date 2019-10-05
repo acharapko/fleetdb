@@ -6,7 +6,7 @@ import (
 
 type FleetDbColumnSpec struct {
     colname         string
-    coltype         FleetDBType
+    coltype         FleetDBValue
     isPartition     bool
     isClustering    bool
 }

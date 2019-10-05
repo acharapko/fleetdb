@@ -15,7 +15,7 @@ func TestTranslateToKV(t *testing.T) {
 	tableMap := make(map[string][]FleetDbColumnSpec)
 	tableName := "crossfit_gyms"
 	
-	var myInt Int
+	var myInt IntValue
 	//Test With One Partition Key and One Clustering Key
 	myschema := make([]FleetDbColumnSpec, 4)
 	myschema[0] = FleetDbColumnSpec{"country_code", myInt, true, false}
