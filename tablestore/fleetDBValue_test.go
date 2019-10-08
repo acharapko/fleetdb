@@ -10,48 +10,55 @@ func TestSerialize(t *testing.T) {
 	myInt := IntValue{200000}
 	byteSlice := myInt.Serialize()
 	fmt.Println(byteSlice)
-	//mySlice := []byte{64,14,3,45}
 	reader := bytes.NewReader(byteSlice)
 	myInt.Deserialize(reader)
-	fmt.Println(myInt.val)
+	if myInt.val != 200000 {
+		t.Errorf("Int Serialization DeSerialization failed, expected %v, got %v", "200000" , myInt.val)
+	}
 	
 	myFloat := FloatValue{3.14444}
 	byteSlice = myFloat.Serialize()
 	fmt.Println(byteSlice)
 	reader = bytes.NewReader(byteSlice)
 	myFloat.Deserialize(reader)
-	fmt.Println(myFloat.val)
+	if myFloat.val != 3.14444 {
+		t.Errorf("Float Serialization DeSerialization failed, expected %v, got %v", "3.14444" , myFloat.val)
+	}
 	
 	myLong := BigIntValue{20000000000}
 	byteSlice = myLong.Serialize()
 	fmt.Println(byteSlice)
-	//mySlice := []byte{64,14,3,45}
 	reader = bytes.NewReader(byteSlice)
 	myLong.Deserialize(reader)
-	fmt.Println(myLong.val)
+	if myLong.val != 20000000000 {
+		t.Errorf("Long Serialization DeSerialization failed, expected %v, got %v", "20000000000" , myLong.val)
+	}
 	
 	myDouble := DoubleValue{3.14444454543546}
 	byteSlice = myDouble.Serialize()
 	fmt.Println(byteSlice)
-	//mySlice := []byte{64,14,3,45}
 	reader = bytes.NewReader(byteSlice)
 	myDouble.Deserialize(reader)
-	fmt.Println(myDouble.val)
+	if myDouble.val != 3.14444454543546 {
+		t.Errorf("Double Serialization DeSerialization failed, expected %v, got %v", "3.14444454543546" , myDouble.val)
+	}
 	
 	myString := TextValue{"Hello World"}
 	byteSlice = myString.Serialize()
 	fmt.Println(byteSlice)
 	reader = bytes.NewReader(byteSlice)
-	//mySlice := []byte{64,14,3,45}
 	myString.Deserialize(reader)
-	fmt.Println(myString.val)
+	if myString.val != "Hello World" {
+		t.Errorf("String Serialization DeSerialization failed, expected %v, got %v", "Hello World" , myString.val)
+	}
 	
 	myBoolean := BooleanValue{true}
 	byteSlice = myBoolean.Serialize()
 	fmt.Println(byteSlice)
 	reader = bytes.NewReader(byteSlice)
-	//mySlice := []byte{64,14,3,45}
 	myBoolean.Deserialize(reader)
-	fmt.Println(myBoolean.val)
+	if myBoolean.val != true {
+		t.Errorf("Boolean Serialization DeSerialization failed, expected %v, got %v", "true" , myBoolean.val)
+	}
 }
 
