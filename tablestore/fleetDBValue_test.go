@@ -2,63 +2,51 @@ package tablestore
 
 import (
     "testing"
-    "fmt"
+   // "fmt"
     "bytes"
+    "github.com/stretchr/testify/assert"
 )
 
 func TestSerialize(t *testing.T) {
 	myInt := IntValue{200000}
 	byteSlice := myInt.Serialize()
-	fmt.Println(byteSlice)
+	//fmt.Println(byteSlice)
 	reader := bytes.NewReader(byteSlice)
-	myInt.Deserialize(reader)
-	if myInt.val != 200000 {
-		t.Errorf("Int Serialization DeSerialization failed, expected %v, got %v", "200000" , myInt.val)
-	}
+	assert.Equal(t, int32(200000), NewIntValue(reader).val)
 	
 	myFloat := FloatValue{3.14444}
 	byteSlice = myFloat.Serialize()
-	fmt.Println(byteSlice)
+	//fmt.Println(byteSlice)
 	reader = bytes.NewReader(byteSlice)
-	myFloat.Deserialize(reader)
-	if myFloat.val != 3.14444 {
-		t.Errorf("Float Serialization DeSerialization failed, expected %v, got %v", "3.14444" , myFloat.val)
-	}
-	
+	assert.Equal(t, float32(3.14444), NewFloatValue(reader).val)
+
 	myLong := BigIntValue{20000000000}
 	byteSlice = myLong.Serialize()
-	fmt.Println(byteSlice)
+	//fmt.Println(byteSlice)
 	reader = bytes.NewReader(byteSlice)
-	myLong.Deserialize(reader)
-	if myLong.val != 20000000000 {
-		t.Errorf("Long Serialization DeSerialization failed, expected %v, got %v", "20000000000" , myLong.val)
-	}
+	assert.Equal(t, int64(20000000000), NewBigIntValue(reader).val)
 	
 	myDouble := DoubleValue{3.14444454543546}
 	byteSlice = myDouble.Serialize()
-	fmt.Println(byteSlice)
+	//fmt.Println(byteSlice)
 	reader = bytes.NewReader(byteSlice)
-	myDouble.Deserialize(reader)
-	if myDouble.val != 3.14444454543546 {
-		t.Errorf("Double Serialization DeSerialization failed, expected %v, got %v", "3.14444454543546" , myDouble.val)
-	}
+	assert.Equal(t, float64(3.14444454543546), NewDoubleValue(reader).val)
 	
 	myString := TextValue{"Hello World"}
 	byteSlice = myString.Serialize()
-	fmt.Println(byteSlice)
 	reader = bytes.NewReader(byteSlice)
-	myString.Deserialize(reader)
-	if myString.val != "Hello World" {
-		t.Errorf("String Serialization DeSerialization failed, expected %v, got %v", "Hello World" , myString.val)
-	}
+	assert.Equal(t, "Hello World", NewTextValue(reader).val)
+	
+	myNullTerminatedString := TextValue{"Hello World\000"}
+	byteSlice = myNullTerminatedString.Serialize()
+	reader = bytes.NewReader(byteSlice)
+	//fmt.Println(NewTextValueFromNullTerminatedStream(reader).val)
+	assert.Equal(t, "Hello World", NewTextValueFromNullTerminatedStream(reader).val)
 	
 	myBoolean := BooleanValue{true}
 	byteSlice = myBoolean.Serialize()
-	fmt.Println(byteSlice)
+	//fmt.Println(byteSlice)
 	reader = bytes.NewReader(byteSlice)
-	myBoolean.Deserialize(reader)
-	if myBoolean.val != true {
-		t.Errorf("Boolean Serialization DeSerialization failed, expected %v, got %v", "true" , myBoolean.val)
-	}
+	assert.Equal(t, true, NewBooleanValue(reader).val)
 }
 

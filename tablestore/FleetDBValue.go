@@ -5,12 +5,30 @@ import (
 	"encoding/binary"
 	"fmt"
 	"bytes"
+	"io/ioutil"
 )
 type FleetDBValue interface{
 	 Serialize() []byte // this translates to []bytes
-	 Deserialize(io.Reader) //new type
+	 //Deserialize(io.Reader) //new type
+	 String() string
+	 getType() FleetDBType
 	 //FromString(string) *FleetDBValue //new from string
 }
+
+type FleetDBType uint8 
+const (
+    Int FleetDBType = iota + 1
+    BigInt
+    Float
+    Double
+    Text
+    Boolean
+)
+
+func (f FleetDBType) getVal() uint8{
+	return uint8(f)
+}
+
 type IntValue struct{
 	val int32
 }
@@ -48,11 +66,17 @@ func (i IntValue) Serialize() []byte{
     return buf.Bytes()
 }
 
-func (i IntValue) Deserialize(reader io.Reader){
+func NewIntValue(reader io.Reader) *IntValue{
+	var i IntValue
 	err := binary.Read(reader, binary.LittleEndian, &(i.val))
 	if err != nil {
 	    fmt.Println("binary.Read failed:", err)
 	}
+	return &i
+}
+
+func (i IntValue) getType() FleetDBType{
+	return Int;
 }
 
 func (f FloatValue) String() string{
@@ -68,11 +92,17 @@ func (f FloatValue) Serialize() []byte{
 	return buf.Bytes()
 }
 
-func (f FloatValue) Deserialize(reader io.Reader){
+func NewFloatValue(reader io.Reader) *FloatValue{
+	var f FloatValue
 	err := binary.Read(reader, binary.LittleEndian, &(f.val))
 	if err != nil {
 	    fmt.Println("binary.Read failed:", err)
-    }
+	}
+	return &f
+}
+
+func (f FloatValue) getType() FleetDBType{
+	return Float
 }
 
 func (l BigIntValue) String() string {
@@ -88,11 +118,17 @@ func (l BigIntValue) Serialize() []byte{
     return buf.Bytes()
 }
 
-func (l BigIntValue) Deserialize(reader io.Reader){
+func NewBigIntValue(reader io.Reader) *BigIntValue{
+	var l BigIntValue
 	err := binary.Read(reader, binary.LittleEndian, &(l.val))
 	if err != nil {
 	    fmt.Println("binary.Read failed:", err)
 	}
+	return &l
+}
+
+func (l BigIntValue) getType() FleetDBType{
+	return BigInt
 }
 
 func (d DoubleValue) String() string{
@@ -108,11 +144,17 @@ func (d DoubleValue) Serialize() []byte{
 	return buf.Bytes()
 }
 
-func (d DoubleValue) Deserialize(reader io.Reader){
+func NewDoubleValue(reader io.Reader) *DoubleValue{
+	var d DoubleValue
 	err := binary.Read(reader, binary.LittleEndian, &(d.val))
 	if err != nil {
 	    fmt.Println("binary.Read failed:", err)
-    }
+	}
+	return &d
+}
+
+func (d DoubleValue) getType() FleetDBType{
+	return Double
 }
 
 func (s TextValue) String() string{
@@ -123,13 +165,30 @@ func (s TextValue) Serialize() []byte{
 	return []byte(s.val)
 }
 
-func (s TextValue) Deserialize(reader io.Reader){
-	var value []byte
-	err := binary.Read(reader, binary.LittleEndian, value)
+func NewTextValue(reader io.Reader) *TextValue{
+	b , err := ioutil.ReadAll(reader)
 	if err != nil {
-	    fmt.Println("binary.Read failed:", err)
+	    fmt.Println("readAll failed:", err)
+	}
+	//fmt.Println(string(b))
+    ans := TextValue{string(b)}
+    return &ans
+}
+
+func NewTextValueFromNullTerminatedStream(r io.Reader) *TextValue {
+    p := []byte{}
+    one := make([]byte, 1)
+	_ , err := r.Read(one)
+    for err != io.EOF && string(one) !=  "\000" {
+    	p = append(p,one...)
+    	_ , err = r.Read(one)
     }
-	s.val = string(value)
+    ans := TextValue{string(p)}
+    return &ans
+}
+
+func (s TextValue) getType() FleetDBType{
+	return Text
 }
 
 func (b BooleanValue) String() string{
@@ -145,9 +204,15 @@ func (b BooleanValue) Serialize() []byte{
 	return buf.Bytes()
 }
 
-func (b BooleanValue) Deserialize(reader io.Reader){
+func NewBooleanValue(reader io.Reader) *BooleanValue{
+	var b BooleanValue
 	err := binary.Read(reader, binary.LittleEndian, &(b.val))
 	if err != nil {
 	    fmt.Println("binary.Read failed:", err)
-    }
+	}
+	return &b
+}
+
+func (b BooleanValue) getType() FleetDBType{
+	return Boolean
 }

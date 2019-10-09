@@ -2,7 +2,8 @@ package tablestore
 
 import (
     "testing"
-   // "fmt"
+   // "github.com/stretchr/testify/assert"
+    //"fmt"
 )
 
 func TestTranslateToKV(t *testing.T) {
@@ -10,67 +11,75 @@ func TestTranslateToKV(t *testing.T) {
 	tableMap := make(map[string][]FleetDbColumnSpec)
 	tableName := "crossfit_gyms"
 	
-	var myInt IntValue
+	var myText TextValue
 	
 	
 	//Test With One Partition Key and One Clustering Key
 	myschema := make([]FleetDbColumnSpec, 4)
-	myschema[0] = FleetDbColumnSpec{"country_code", myInt, true, false}
-	myschema[1] = FleetDbColumnSpec{"state_province", myInt, false, true}
-	myschema[2] = FleetDbColumnSpec{"city", myInt, false, false}
-	myschema[3] = FleetDbColumnSpec{"gym_name", myInt, false, false}
+	myschema[0] = FleetDbColumnSpec{"country_code", myText, true, false}
+	myschema[1] = FleetDbColumnSpec{"state_province", myText, false, true}
+	myschema[2] = FleetDbColumnSpec{"city", myText, false, false}
+	myschema[3] = FleetDbColumnSpec{"gym_name", myText, false, false}
 	tableMap[tableName] = myschema
 	insertCommand := "INSERT INTO crossfit_gyms (country_code, state_province, city, gym_name) VALUES ('US', ‘NY’, ‘Buffalo’, 'University Avenue');";
 	rowData, myTableName := decodeInsertCommand(insertCommand)
 	res := TranslateToKV(tableMap[myTableName], rowData)
-	if string(res[0].Key) != "US/NY/city" {
-		t.Errorf("TranslateToKV() failed, expected %v, got %v", "US/NY/city" , string(res[0].Key))
-	}
-	if string(res[0].Value) != "Buffalo" {
-		t.Errorf("TranslateToKV() failed, expected %v, got %v", "Buffalo" , string(res[0].Value))
-	}
-	if string(res[1].Key) != "US/NY/gym_name" {
-		t.Errorf("TranslateToKV() failed, expected %v, got %v", "US/NY/gym_name" , string(res[1].Key))
-	}
-	if string(res[1].Value) != "University Avenue" {
-		t.Errorf("TranslateToKV() failed, expected %v, got %v", "University Avenue" , string(res[1].Value))
-	}
+	parseKey(res)
+	//fmt.Println(res[0].Key)
+	//fmt.Println(res[1].Key)
 	
-	
+	//fmt.Println(string([]byte{3,5,99,105,116,121,0}))
+	//assert.Equal(t, "US/NY/city", string(res[0].Key))
+	//assert.Equal(t, "Buffalo", string(res[0].Value))
+	//assert.Equal(t, "US/NY/gym_name", string(res[1].Key))
+	//assert.Equal(t, "University Avenue", string(res[1].Value))
+	/*
 	//Test With One Partition Key and Zero Clustering Key
-	myschema = make([]FleetDbColumnSpec, 4)
-	myschema[0] = FleetDbColumnSpec{"country_code", myInt, true, false}
-	myschema[1] = FleetDbColumnSpec{"state_province", myInt, false, false}
-	myschema[2] = FleetDbColumnSpec{"city", myInt, false, false}
-	myschema[3] = FleetDbColumnSpec{"gym_name", myInt, false, false}
-	tableMap[tableName] = myschema
-	insertCommand = "INSERT INTO crossfit_gyms (country_code, state_province, city, gym_name) VALUES ('US', ‘NY’, ‘Buffalo’, 'University Avenue');";
-	rowData, myTableName = decodeInsertCommand(insertCommand)
+	myschema[1] = FleetDbColumnSpec{"state_province", myText, false, false}
 	res = TranslateToKV(tableMap[myTableName], rowData)
-	if string(res[0].Key) != "US/state_province" {
-		t.Errorf("TranslateToKV() Test case 2 failed, expected %v, got %v", "US/state_province" , string(res[0].Key))
-	}
-	if string(res[0].Value) != "NY" {
-		t.Errorf("TranslateToKV() Test case 2  failed, expected %v, got %v", "NY" , string(res[0].Value))
-	}
-	if string(res[1].Key) != "US/city" {
-		t.Errorf("TranslateToKV() Test case 2 failed, expected %v, got %v", "US/city" , string(res[1].Key))
-	}
-	if string(res[1].Value) != "Buffalo" {
-		t.Errorf("TranslateToKV() Test case 2  failed, expected %v, got %v", "Buffalo" , string(res[1].Value))
-	}
-	if string(res[2].Key) != "US/gym_name" {
-		t.Errorf("TranslateToKV() Test case 2 failed, expected %v, got %v", "US/gym_name" , string(res[2].Key))
-	}
-	if string(res[2].Value) != "University Avenue" {
-		t.Errorf("TranslateToKV() Test case 2 failed, expected %v, got %v", "University Avenue" , string(res[2].Value))
-	}
+	assert.Equal(t, "US/state_province", string(res[0].Key))
+	assert.Equal(t, "NY", string(res[0].Value))
+	assert.Equal(t, "US/city", string(res[1].Key))
+	assert.Equal(t, "Buffalo", string(res[1].Value))
+	assert.Equal(t, "US/gym_name", string(res[2].Key))
+	assert.Equal(t, "University Avenue", string(res[2].Value))
+	
+	//All columns are either PK or CK
+	myschema[0] = FleetDbColumnSpec{"country_code", myText, true, false}
+	myschema[1] = FleetDbColumnSpec{"state_province", myText, false, true}
+	myschema[2] = FleetDbColumnSpec{"city", myText, false, true}
+	myschema[3] = FleetDbColumnSpec{"gym_name", myText, false, true}
+	res = TranslateToKV(tableMap[myTableName], rowData)
+	assert.Equal(t, "US/NY/Buffalo/University Avenue", string(res[0].Key))
+	assert.Equal(t,[]byte(nil), res[0].Value)
+	
+	// Composite Key
+	myschema[0] = FleetDbColumnSpec{"country_code", myText, true, false}
+	myschema[1] = FleetDbColumnSpec{"state_province", myText, true, false}
+	myschema[2] = FleetDbColumnSpec{"city", myText, false, false}
+	myschema[3] = FleetDbColumnSpec{"gym_name", myText, false, false}
+	res = TranslateToKV(tableMap[myTableName], rowData)
+	assert.Equal(t, "US/NY/city", string(res[0].Key))
+	assert.Equal(t, "Buffalo", string(res[0].Value))
+	assert.Equal(t, "US/NY/gym_name", string(res[1].Key))
+	assert.Equal(t, "University Avenue", string(res[1].Value))
+	
+	//Composite Key with Clustering Key
+	myschema[0] = FleetDbColumnSpec{"country_code", myText, true, false}
+	myschema[1] = FleetDbColumnSpec{"state_province", myText, false, true}
+	myschema[2] = FleetDbColumnSpec{"city", myText, true, false}
+	myschema[3] = FleetDbColumnSpec{"gym_name", myText, false, false}
+	res = TranslateToKV(tableMap[myTableName], rowData)
+	assert.Equal(t, "US/Buffalo/NY/gym_name", string(res[0].Key))
+	assert.Equal(t, "University Avenue", string(res[0].Value))
+	*/
 }
 
 func decodeInsertCommand(query string)([]FleetDBValue , string){
 	val := []FleetDBValue{TextValue{"US"}, TextValue{"NY"},TextValue{"Buffalo"},TextValue{"University Avenue"}}
 	return val, "crossfit_gyms"
 }
+
 
 /*func createSchema(query string) ([]FleetDbColumnSpec,string) {
 	schema := make([]FleetDbColumnSpec, 4)
