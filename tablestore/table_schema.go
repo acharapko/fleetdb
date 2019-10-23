@@ -9,4 +9,5 @@ type FleetDbColumnSpec struct {
     coltype         FleetDBValue
     isPartition     bool
     isClustering    bool
+    seqNo			uint8
 }

@@ -1,10 +1,6 @@
 package tablestore
 
 import (
-	"fmt"
-	"io"
-	"bytes"
-	//"encoding/binary"
 )
 
 const(
@@ -45,11 +41,8 @@ func TranslateToKV(columnSpecs []FleetDbColumnSpec, values []FleetDBValue) []KVI
     		cKeyCount = cKeyCount + 1
     	}
    }
-    //Handle Nil values
-    
     kvItems := []KVItem{}
     var prefix []byte
-    //var key []byte
     prefix = pKey
         
     if cKeyCount > 0{
@@ -58,9 +51,8 @@ func TranslateToKV(columnSpecs []FleetDbColumnSpec, values []FleetDBValue) []KVI
     if len(columnSpecs) == (pKeyCount + cKeyCount){
     	key := prefix
     	var val []byte
-    	kvItems[0] = KVItem{key, val}
+    	kvItems = append(kvItems, KVItem{key, val})
     }else{
-    	//index := 0
 	    for i, colSpec := range columnSpecs {
 	    	if !colSpec.isPartition && !colSpec.isClustering{
 	    		//fmt.Println(index)
@@ -69,37 +61,15 @@ func TranslateToKV(columnSpecs []FleetDbColumnSpec, values []FleetDBValue) []KVI
 	    		key = append(key,ColumnType)
 	    		key = append(key, Text.getVal())
 	    		key = append(key,[]byte(colSpec.colname + nullchar)...)
-	    		val := values[i].Serialize()
+	    		var val []byte
+	    		if(values[i] != nil){
+		    		val = values[i].Serialize()
+	    		}else {
+	    			val = nil
+	    		}
 	    		kvItems = append(kvItems, KVItem{key, val})
 	    	}
 		}
     }
 	return kvItems;
 }
-
-//Incomplete Implementation
-func parseKey(data []KVItem){
-	for _, item := range data{
-		r := bytes.NewReader(item.Key)
-		p := make([]byte, 1)
-		//var i uint8
-		//fmt.Println(string(item.Key))
-		_ , err := r.Read(p)
-		for err != io.EOF{
-			r.Read(p)
-			//r.Read(p)
-			switch p[0] {
-				case 1:
-					fmt.Printf("Integer")
-				case 2:
-					fmt.Printf("BigInt")
-				case 5:
-					//fmt.Printf("Text \n")
-					text := NewTextValueFromNullTerminatedStream(r)
-					fmt.Println(text.val)
-			}
-			_ , err = r.Read(p)
-		}
-	}
-}
-

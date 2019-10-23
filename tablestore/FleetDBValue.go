@@ -9,10 +9,8 @@ import (
 )
 type FleetDBValue interface{
 	 Serialize() []byte // this translates to []bytes
-	 //Deserialize(io.Reader) //new type
 	 String() string
 	 getType() FleetDBType
-	 //FromString(string) *FleetDBValue //new from string
 }
 
 type FleetDBType uint8 
@@ -23,6 +21,23 @@ const (
     Double
     Text
     Boolean
+)
+
+type ComparatorType uint8
+const (
+	LESSTHAN = iota + 1
+	LESSTHANEQUAL
+	GREATERTHAN
+	GREATERTHANEQUAL
+	BETWEEN
+	EQUAL
+)
+
+type ColKeyType uint8 
+const (
+    PRIMARY ColKeyType = iota + 1
+    CLUSTERING
+    COLUMN
 )
 
 func (f FleetDBType) getVal() uint8{
@@ -158,7 +173,7 @@ func (d DoubleValue) getType() FleetDBType{
 }
 
 func (s TextValue) String() string{
-	return fmt.Sprintf("String value = %v", s.val)
+	return fmt.Sprintf(s.val)
 }
 
 func (s TextValue) Serialize() []byte{
@@ -170,7 +185,6 @@ func NewTextValue(reader io.Reader) *TextValue{
 	if err != nil {
 	    fmt.Println("readAll failed:", err)
 	}
-	//fmt.Println(string(b))
     ans := TextValue{string(b)}
     return &ans
 }
